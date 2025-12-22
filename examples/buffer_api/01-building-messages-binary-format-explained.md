@@ -110,49 +110,69 @@ An array of 8 `u32` offsets pointing to child nodes.
 
 ### 2. Data Entries (Offset 96+)
 
-Following the root node, we find the actual data.
+Following the root node, we find the actual data. Entries are contiguous and densely packed.
 
-#### Entry 1: "event" (Offset 96)
-**Excerpt**: `18 65 76 65 6e 74 00 05 0d 00 00 00 ...`
+#### Entry 1: "event" (Offset 96 / 0x60)
+**Referenced by**: Node KvOfs[1]
+**Total Size**: 25 bytes (Offset 96 to 121)
+**Raw Data**: `18 65 76 65 6e 74 00 05 0d 00 00 00 6c 61 70 5f 63 6f 6d 70 6c 65 74 65 00`
 
-*   **Key Header (`18`)**: `0001 1000`
-    *   Bits 0-1 (`00`): Tag Size = 1 byte.
-    *   Bits 2+ (`0001 10`...): Key Length = 6.
-*   **Key Bytes**: `65 76 65 6e 74 00` -> "event" + `\0`. (6 bytes).
-*   **Type Tag (`05`)**: `LITE3_TYPE_STRING`.
-*   **Payload (`0d 00 00 00` ...)**:
-    *   Length: `13` (includes null terminator).
-    *   Data: "lap_complete\0".
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **96** | `18` | **KeyTag**: `0x18`. <br> - Bits 0-1 (`00`): Tag Size = 1 byte. <br> - Bits 2+ (`0001 10`...): Key Length = 6. |
+| **97** | `65..00` | **Key**: "event\0" (6 bytes). |
+| **103** | `05` | **TypeTag**: `LITE3_TYPE_STRING` (5). |
+| **104** | `0d000000` | **Length**: `13` (0x0d). Includes the null terminator. |
+| **108** | `6c..00` | **Value**: "lap_complete\0" (13 bytes). |
 
-#### Entry 2: "lap" (Offset 121)
-**Excerpt**: `10 6c 61 70 00 02 38 00 00 00 ...`
+#### Entry 2: "lap" (Offset 121 / 0x79)
+**Referenced by**: Node KvOfs[0]
+**Total Size**: 14 bytes (Offset 121 to 135)
+**Raw Data**: `10 6c 61 70 00 02 38 00 00 00 00 00 00 00`
 
-*   **Key Header (`10`)**: Key Length = 4.
-*   **Key Bytes**: "lap\0".
-*   **Type Tag (`02`)**: `LITE3_TYPE_I64`.
-*   **Payload**: `38 00 00 00 00 00 00 00` -> `56` (64-bit integer, Little Endian).
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **121** | `10` | **KeyTag**: `0x10`. <br> - Bits 0-1 (`00`): Tag Size = 1 byte. <br> - Bits 2+ (`0001 00`): Key Length = 4. |
+| **122** | `6c..00` | **Key**: "lap\0" (4 bytes). |
+| **126** | `02` | **TypeTag**: `LITE3_TYPE_I64` (2). |
+| **127** | `38..00` | **Value**: `56` (0x38). 64-bit Little Endian Integer. |
 
-#### Entry 3: "time_sec" (Offset 135)
-**Excerpt**: `24 74 69 6d 65 5f 73 65 63 00 03 17 d9 ce f7 53 1b 56 40`
+#### Entry 3: "time_sec" (Offset 135 / 0x87)
+**Referenced by**: Node KvOfs[2]
+**Total Size**: 19 bytes (Offset 135 to 154)
+**Raw Data**: `24 74 69 6d 65 5f 73 65 63 00 03 17 d9 ce f7 53 1b 56 40`
 
-*   **Key**: "time_sec\0".
-*   **Type Tag (`03`)**: `LITE3_TYPE_F64`.
-*   **Payload**: `17 .. 40`. This is the IEEE 754 representation of `88.427`.
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **135** | `24` | **KeyTag**: `0x24`. <br> - Bits 0-1 (`00`): Tag Size = 1 byte. <br> - Bits 2+ (`0010 01`...): Key Length = 9. |
+| **136** | `74..00` | **Key**: "time_sec\0" (9 bytes). |
+| **145** | `03` | **TypeTag**: `LITE3_TYPE_F64` (3). |
+| **146** | `17..40` | **Value**: `88.427`. IEEE 754 64-bit Double. |
 
-#### Entry 4: "verified" (Offset 154)
-**Excerpt**: `... 05 0d 00 00 00 ...`
+#### Entry 4: "verified" (Offset 154 / 0x9a)
+**Referenced by**: Node KvOfs[4]
+**Total Size**: 28 bytes (Offset 154 to 182)
+**Raw Data**: `24 76 65 72 69 66 69 65 64 00 05 0d 00 00 00 72 61 63 65 5f 63 6f 6e 74 72 6f 6c 00`
 
-*   **Key**: "verified\0".
-*   **Type Tag (`05`)**: String.
-*   **Payload**: Length 13, "race_control\0".
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **154** | `24` | **KeyTag**: `0x24`. Key Length = 9. |
+| **155** | `76..00` | **Key**: "verified\0" (9 bytes). |
+| **164** | `05` | **TypeTag**: `LITE3_TYPE_STRING` (5). |
+| **165** | `0d000000` | **Length**: `13` (0x0d). |
+| **169** | `72..00` | **Value**: "race_control\0" (13 bytes). |
 
-#### Entry 5: "fastest_lap" (Offset 182)
-**Excerpt**: `30 66 61 73 74 65 73 74 5f 6c 61 70 00 01 01`
+#### Entry 5: "fastest_lap" (Offset 182 / 0xB6)
+**Referenced by**: Node KvOfs[3]
+**Total Size**: 15 bytes (Offset 182 to 197)
+**Raw Data**: `30 66 61 73 74 65 73 74 5f 6c 61 70 00 01 01`
 
-*   **Key Header (`30`)**: Key Length = 12.
-*   **Key Bytes**: "fastest_lap\0".
-*   **Type Tag (`01`)**: `LITE3_TYPE_BOOL`.
-*   **Payload**: `01` -> `true`. (Note: booleans naturally use 1 byte payload in this implementation).
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **182** | `30` | **KeyTag**: `0x30`. <br> - Bits 0-1 (`00`): Tag Size = 1 byte. <br> - Bits 2+ (`0011 00`...): Key Length = 12. |
+| **183** | `66..00` | **Key**: "fastest_lap\0" (12 bytes). |
+| **195** | `01` | **TypeTag**: `LITE3_TYPE_BOOL` (1). |
+| **196** | `01` | **Value**: `true` (1). Boolean payload is 1 byte. |
 
 ---
 
