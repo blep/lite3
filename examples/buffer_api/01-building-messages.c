@@ -36,6 +36,16 @@
 
 static unsigned char buf[1024], rx[1024];
 
+static void print_buffer(const unsigned char *p, size_t len)
+{
+        printf("Buffer (hex):");
+        for (size_t i = 0; i < len; ++i) {
+                if ((i % 4) == 0) printf(" ");
+                printf("%02x", p[i]);
+        }
+        printf("\n");
+}
+
 int main() {
         size_t buflen = 0;
         size_t bufsz = sizeof(buf);
@@ -49,6 +59,7 @@ int main() {
                 return 1;
         }
         printf("buflen: %zu\n", buflen);
+        print_buffer(buf, buflen);
         if (lite3_json_print(buf, buflen, 0) < 0) { // Print Lite³ as JSON
                 perror("Failed to print JSON");
                 return 1;
@@ -62,6 +73,7 @@ int main() {
         
         printf("Data to send:\n");
         printf("buflen: %zu\n", buflen);
+        print_buffer(buf, buflen);
         if (lite3_json_print(buf, buflen, 0) < 0) {
                 perror("Failed to print JSON");
                 return 1;
@@ -82,6 +94,7 @@ int main() {
 
         printf("Modified data:\n");
         printf("rx_buflen: %zu\n", rx_buflen);
+        print_buffer(rx, rx_buflen);
         if (lite3_json_print(rx, rx_buflen, 0) < 0) {
                 perror("Failed to print JSON");
                 return 1;
