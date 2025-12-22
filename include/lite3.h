@@ -46,6 +46,13 @@ Lite³ Buffer API Header
 #include <string.h>
 #include <errno.h>
 
+#if defined(_MSC_VER) && !defined(__clang__)
+#define __attribute__(x)
+#define __builtin_expect(x, v) (x)
+#define __restrict __restrict
+#define __builtin_constant_p(x) 0
+#endif
+
 
 
 #if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN || \
@@ -836,10 +843,15 @@ Set null in object
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_null(buf, inout_buflen, ofs, bufsz, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_set_null_impl(buf, inout_buflen, ofs, bufsz, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_set_null(buf, inout_buflen, ofs, bufsz, key) \
+        _lite3_set_null_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_set_null_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data)
 {
@@ -867,10 +879,15 @@ Set boolean in object
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_bool(buf, inout_buflen, ofs, bufsz, key, value) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_set_bool_impl(buf, inout_buflen, ofs, bufsz, __lite3_key__, LITE3_KEY_DATA(key), value); \
 })
+#else
+#define lite3_set_bool(buf, inout_buflen, ofs, bufsz, key, value) \
+        _lite3_set_bool_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), value)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_set_bool_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, bool value)
 {
@@ -899,10 +916,15 @@ Set integer in object
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_i64(buf, inout_buflen, ofs, bufsz, key, value) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_set_i64_impl(buf, inout_buflen, ofs, bufsz, __lite3_key__, LITE3_KEY_DATA(key), value); \
 })
+#else
+#define lite3_set_i64(buf, inout_buflen, ofs, bufsz, key, value) \
+        _lite3_set_i64_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), value)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_set_i64_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, int64_t value)
 {
@@ -931,10 +953,15 @@ Set floating point in object
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_f64(buf, inout_buflen, ofs, bufsz, key, value) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_set_f64_impl(buf, inout_buflen, ofs, bufsz, __lite3_key__, LITE3_KEY_DATA(key), value); \
 })
+#else
+#define lite3_set_f64(buf, inout_buflen, ofs, bufsz, key, value) \
+        _lite3_set_f64_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), value)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_set_f64_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, double value)
 {
@@ -964,10 +991,15 @@ Set bytes in object
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_bytes(buf, inout_buflen, ofs, bufsz, key, bytes, bytes_len) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_set_bytes_impl(buf, inout_buflen, ofs, bufsz, __lite3_key__, LITE3_KEY_DATA(key), bytes, bytes_len); \
 })
+#else
+#define lite3_set_bytes(buf, inout_buflen, ofs, bufsz, key, bytes, bytes_len) \
+        _lite3_set_bytes_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), bytes, bytes_len)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_set_bytes_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, const unsigned char *__restrict bytes, size_t bytes_len)
 {
@@ -1001,10 +1033,15 @@ Set string in object
 This function must call `strlen()` to learn the size of the string.
 If you know the length beforehand, it is more efficient to call `lite3_set_str_n()`.
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_str(buf, inout_buflen, ofs, bufsz, key, str) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_set_str_impl(buf, inout_buflen, ofs, bufsz, __lite3_key__, LITE3_KEY_DATA(key), str); \
 })
+#else
+#define lite3_set_str(buf, inout_buflen, ofs, bufsz, key, str) \
+        _lite3_set_str_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), str)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_set_str_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, const char *__restrict str)
 {
@@ -1039,10 +1076,15 @@ Set string in object by length
 @warning
 `str_len` is exclusive of the NULL-terminator.
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_str_n(buf, inout_buflen, ofs, bufsz, key, str, str_len) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_set_str_n_impl(buf, inout_buflen, ofs, bufsz, __lite3_key__, LITE3_KEY_DATA(key), str, str_len); \
 })
+#else
+#define lite3_set_str_n(buf, inout_buflen, ofs, bufsz, key, str, str_len) \
+        _lite3_set_str_n_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), str, str_len)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_set_str_n_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, const char *__restrict str, size_t str_len)
 {
@@ -1074,6 +1116,7 @@ Set object in object
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_obj(buf, inout_buflen, ofs, bufsz, key, out_ofs) ({ \
         unsigned char *__lite3_buf__ = (buf); \
         size_t *__lite3_inout_buflen__ = (inout_buflen); \
@@ -1097,6 +1140,21 @@ Set object in object
                 LITE3_KEY_DATA(key), \
                 out_ofs); \
 })
+#else
+static inline int _lite3_set_obj_compat(unsigned char *buf, size_t *inout_buflen, size_t ofs, size_t bufsz, const char *key, lite3_key_data key_data, size_t *out_ofs) {
+        int ret;
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+                return ret;
+        // Forward declaration inside function scope to satisfy compiler? No, needs file scope or external.
+        // Actually, just declare it before the function.
+        // But I am inside the replacement chunk of multi_replace.
+        // I will rely on standard C valid code.
+        extern int lite3_set_obj_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs);
+        return lite3_set_obj_impl(buf, inout_buflen, ofs, bufsz, key, key_data, out_ofs);
+}
+#define lite3_set_obj(buf, inout_buflen, ofs, bufsz, key, out_ofs) \
+        _lite3_set_obj_compat(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), out_ofs)
+#endif
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_set_obj_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs);
@@ -1115,6 +1173,7 @@ Set array in object
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_set_arr(buf, inout_buflen, ofs, bufsz, key, out_ofs) ({ \
         unsigned char *__lite3_buf__ = (buf); \
         size_t *__lite3_inout_buflen__ = (inout_buflen); \
@@ -1138,6 +1197,17 @@ Set array in object
                 LITE3_KEY_DATA(key), \
                 out_ofs); \
 })
+#else
+static inline int _lite3_set_arr_compat(unsigned char *buf, size_t *inout_buflen, size_t ofs, size_t bufsz, const char *key, lite3_key_data key_data, size_t *out_ofs) {
+        int ret;
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+                return ret;
+        extern int lite3_set_arr_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs);
+        return lite3_set_arr_impl(buf, inout_buflen, ofs, bufsz, key, key_data, out_ofs);
+}
+#define lite3_set_arr(buf, inout_buflen, ofs, bufsz, key, out_ofs) \
+        _lite3_set_arr_compat(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), out_ofs)
+#endif
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_set_arr_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs);
@@ -1769,10 +1839,15 @@ Find value by key and return value type
 @return lite3_type on success
 @return `LITE3_TYPE_INVALID` on error (key cannot be found)
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_type(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_type_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_get_type(buf, buflen, ofs, key) \
+        _lite3_get_type_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline enum lite3_type _lite3_get_type_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -1801,10 +1876,15 @@ Find value by key and write back type size
 @note
 For variable sized types like `LITE3_TYPE_BYTES` or `LITE3_TYPE_STRING`, the number of bytes (including NULL-terminator for string) are written back.
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_type_size(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_type_size_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_type_size(buf, buflen, ofs, key, out) \
+        _lite3_get_type_size_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_type_size_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out)
 {
@@ -1835,10 +1915,15 @@ Attempt to find a key
 @return `true` on success
 @return `false` on failure
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_exists(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_exists_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_exists(buf, buflen, ofs, key) \
+        _lite3_exists_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_exists_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -1889,10 +1974,15 @@ Find value by key and test for null type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_null(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_null_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_null(buf, buflen, ofs, key) \
+        _lite3_is_null_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_null_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -1916,10 +2006,15 @@ Find value by key and test for bool type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_bool(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_bool_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_bool(buf, buflen, ofs, key) \
+        _lite3_is_bool_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_bool_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -1943,10 +2038,15 @@ Find value by key and test for integer type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_i64(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_i64_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_i64(buf, buflen, ofs, key) \
+        _lite3_is_i64_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_i64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -1970,10 +2070,15 @@ Find value by key and test for floating point type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_f64(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_f64_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_f64(buf, buflen, ofs, key) \
+        _lite3_is_f64_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_f64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -1997,10 +2102,15 @@ Find value by key and test for bytes type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_bytes(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_bytes_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_bytes(buf, buflen, ofs, key) \
+        _lite3_is_bytes_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_bytes_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -2024,10 +2134,15 @@ Find value by key and test for string type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_str(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_str_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_str(buf, buflen, ofs, key) \
+        _lite3_is_str_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_str_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -2051,10 +2166,15 @@ Find value by key and test for object type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_obj(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_obj_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_obj(buf, buflen, ofs, key) \
+        _lite3_is_obj_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_obj_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -2078,10 +2198,15 @@ Find value by key and test for array type
 @return `true` if the value matches the type
 @return `false` if the type does not match or the key cannot be found
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_is_arr(buf, buflen, ofs, key) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_is_arr_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key)); \
 })
+#else
+#define lite3_is_arr(buf, buflen, ofs, key) \
+        _lite3_is_arr_impl(buf, buflen, ofs, key, lite3_get_key_data(key))
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_arr_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
@@ -2131,6 +2256,7 @@ This can be useful in cases where you don't know the exact type of a value befor
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get(buf, buflen, ofs, key, out) ({ \
         const unsigned char *__lite3_buf__ = (buf); \
         size_t __lite3_buflen__ = (buflen); \
@@ -2141,6 +2267,16 @@ This can be useful in cases where you don't know the exact type of a value befor
         const char *__lite3_key__ = (key); \
         lite3_get_impl(__lite3_buf__, __lite3_buflen__, __lite3_ofs__, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+static inline int _lite3_get_compat(const unsigned char *buf, size_t buflen, size_t ofs, const char *key, lite3_key_data key_data, lite3_val **out) {
+        int ret;
+        if ((ret = _lite3_verify_get(buf, buflen, ofs)) < 0)
+                return ret;
+        return lite3_get_impl(buf, buflen, ofs, key, key_data, out);
+}
+#define lite3_get(buf, buflen, ofs, key, out) \
+        _lite3_get_compat(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 
 /**
 Get boolean value by key
@@ -2154,10 +2290,15 @@ Get boolean value by key
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_bool(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_bool_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_bool(buf, buflen, ofs, key, out) \
+        _lite3_get_bool_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_bool_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, bool *out)
 {
@@ -2189,10 +2330,15 @@ Get integer value by key
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_i64(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_i64_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_i64(buf, buflen, ofs, key, out) \
+        _lite3_get_i64_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_i64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, int64_t *out)
 {
@@ -2224,10 +2370,15 @@ Get floating point value by key
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_f64(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_f64_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_f64(buf, buflen, ofs, key, out) \
+        _lite3_get_f64_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_f64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, double *out)
 {
@@ -2259,10 +2410,15 @@ Get bytes value by key
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_bytes(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_bytes_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_bytes(buf, buflen, ofs, key, out) \
+        _lite3_get_bytes_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_bytes_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, lite3_bytes *out)
 {
@@ -2299,10 +2455,15 @@ Get string value by key
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_str(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_str_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_str(buf, buflen, ofs, key, out) \
+        _lite3_get_str_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_str_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, lite3_str *out)
 {
@@ -2340,10 +2501,15 @@ Get object by key
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_obj(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_obj_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_obj(buf, buflen, ofs, key, out) \
+        _lite3_get_obj_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_obj_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs)
 {
@@ -2375,10 +2541,15 @@ Get array by key
 @return 0 on success
 @return < 0 on error
 */
+#if defined(__GNUC__) || defined(__clang__)
 #define lite3_get_arr(buf, buflen, ofs, key, out) ({ \
         const char *__lite3_key__ = (key); \
         _lite3_get_arr_impl(buf, buflen, ofs, __lite3_key__, LITE3_KEY_DATA(key), out); \
 })
+#else
+#define lite3_get_arr(buf, buflen, ofs, key, out) \
+        _lite3_get_arr_impl(buf, buflen, ofs, key, lite3_get_key_data(key), out)
+#endif
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_get_arr_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs)
 {

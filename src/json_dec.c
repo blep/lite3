@@ -69,7 +69,7 @@ int _lite3_json_dec_obj_switch(unsigned char *buf, size_t *restrict inout_buflen
                         return -1;
                 } 
                 break;
-        case YYJSON_TYPE_NUM:
+        case YYJSON_TYPE_NUM: {
                 switch (yyjson_get_subtype(yy_val)) {
                 case YYJSON_SUBTYPE_SINT:
                         int64_t num_i64 = yyjson_get_sint(yy_val);
@@ -98,26 +98,30 @@ int _lite3_json_dec_obj_switch(unsigned char *buf, size_t *restrict inout_buflen
                         return -1;
                 }
                 break;
-        case YYJSON_TYPE_STR:
+        }
+        case YYJSON_TYPE_STR: {
                 const char *str = yyjson_get_str(yy_val);
                 size_t len = yyjson_get_len(yy_val);
                 if ((ret = lite3_set_str_n(buf, inout_buflen, ofs, bufsz, key, str, len)) < 0)
                         return ret;
                 break;
-        case YYJSON_TYPE_OBJ:
+        }
+        case YYJSON_TYPE_OBJ: {
                 size_t obj_ofs;
                 if ((ret = lite3_set_obj(buf, inout_buflen, ofs, bufsz, key, &obj_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_obj(buf, inout_buflen, obj_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
                 break;
-        case YYJSON_TYPE_ARR:
+        }
+        case YYJSON_TYPE_ARR: {
                 size_t arr_ofs;
                 if ((ret = lite3_set_arr(buf, inout_buflen, ofs, bufsz, key, &arr_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_arr(buf, inout_buflen, arr_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
                 break;
+        }
         default:
                 LITE3_PRINT_ERROR("FAILED TO READ JSON: INVALID TYPE\n");
                 errno = EINVAL;
@@ -151,7 +155,7 @@ int _lite3_json_dec_arr_switch(unsigned char *buf, size_t *restrict inout_buflen
                         return -1;
                 }
                 break;
-        case YYJSON_TYPE_NUM:
+        case YYJSON_TYPE_NUM: {
                 switch (yyjson_get_subtype(yy_val)) {
                 case YYJSON_SUBTYPE_SINT:
                         int64_t num_i64 = yyjson_get_sint(yy_val);
@@ -180,26 +184,30 @@ int _lite3_json_dec_arr_switch(unsigned char *buf, size_t *restrict inout_buflen
                         return -1;
                 }
                 break;
-        case YYJSON_TYPE_STR:
+        }
+        case YYJSON_TYPE_STR: {
                 const char *str = yyjson_get_str(yy_val);
                 size_t len = yyjson_get_len(yy_val);
                 if ((ret = lite3_arr_append_str_n(buf, inout_buflen, ofs, bufsz, str, len)) < 0)
                         return ret;
                 break;
-        case YYJSON_TYPE_OBJ:
+        }
+        case YYJSON_TYPE_OBJ: {
                 size_t obj_ofs;
                 if ((ret = lite3_arr_append_obj(buf, inout_buflen, ofs, bufsz, &obj_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_obj(buf, inout_buflen, obj_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
                 break;
-        case YYJSON_TYPE_ARR:
+        }
+        case YYJSON_TYPE_ARR: {
                 size_t arr_ofs;
                 if ((ret = lite3_arr_append_arr(buf, inout_buflen, ofs, bufsz, &arr_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_arr(buf, inout_buflen, arr_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
                 break;
+        }
         default:
                 LITE3_PRINT_ERROR("FAILED TO READ JSON: INVALID TYPE\n");
                 errno = EINVAL;
