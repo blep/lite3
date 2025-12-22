@@ -7,6 +7,8 @@ project(lite3
     LANGUAGES C
 )
 
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 # Options
 option(LITE3_ENABLE_JSON "Enable JSON support (includes yyjson and nibble_base64)" ON)
 
@@ -23,6 +25,7 @@ add_library(lite3 STATIC
     src/lite3.c
     src/json_dec.c
     src/json_enc.c
+    src/ctx_api.c
 )
 
 add_library(lite3::lite3 ALIAS lite3)
