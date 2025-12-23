@@ -79,15 +79,15 @@ This is the **Raw hexadecimal view** of the file with **Decimal Offsets** (as re
 
 ```text
 0000 | 06 0e 00 00 80 76 70 6a 00 00 00 00 00 00 00 00 | .....vpj........
-0016 | 00 00 00 00 00 00 00 00 00 00 00 00 81 03 00 00 | ................
-0032 | 9d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
-0048 | 00 00 00 00 00 00 00 00 e0 00 00 00 40 01 00 00 | ........@.......
-0064 | 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
-0080 | 00 00 00 00 00 00 00 00 14 6e 61 6d 65 00 05 0d | .........name...
-0096 | 00 00 00 53 69 72 20 42 79 74 65 61 6c 6f 74 00 | ...Sir Bytealot.
-0112 | 18 6c 65 76 65 6c 00 02 3c 00 00 00 00 00 00 00 | .level..<.......
-0128 | 2c 68 69 74 5f 63 68 61 6e 63 65 00 03 66 66 66 | ,hit_chance..fff
-0144 | 66 66 66 ee 3f 3c 69 73 5f 70 76 70 5f 65 6e 61 | fff.?<is_pvp_ena
+0016 | 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+0032 | 81 03 00 00 9d 00 00 00 00 00 00 00 00 00 00 00 | ................
+0048 | 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+0064 | e0 00 00 00 40 01 00 00 00 00 00 00 00 00 00 00 | ....@...........
+0080 | 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+0096 | 14 6e 61 6d 65 00 05 0d 00 00 00 53 69 72 20 42 | .name......Sir B
+0112 | 79 74 65 61 6c 6f 74 00 18 6c 65 76 65 6c 00 02 | ytealot..level..
+0128 | 3c 00 00 00 00 00 00 00 2c 68 69 74 5f 63 68 61 | <.......,hit_cha
+0144 | 6e 63 65 00 03 66 66 66 66 66 66 ee 3f 3c 69 73 | nce..ffffff.?<is
 0160 | 5f 70 76 70 5f 65 6e 61 62 6c 65 64 00 01 01 18 | _pvp_enabled....
 0176 | 67 75 69 6c 64 00 00 34 70 6f 72 74 72 61 69 74 | guild..4portrait
 0192 | 5f 72 61 77 00 04 04 00 00 00 ca fe ba be 24 6e | _raw..........$n
@@ -201,154 +201,262 @@ This is the **Raw hexadecimal view** of the file with **Decimal Offsets** (as re
 
 ## 4. Byte-by-Byte Breakdown
 
-### Segment 1: The Root Node (0x00 - 0x60)
-
-The first 96 bytes always contain the Root B-Tree Node.
-
-#### Byte 0-4: GenType (`06 0e 00 00`)
-Value: `0x00000e06` (Little Endian)
-
-*   **Type (Low 8 bits)**: `0x06` -> `LITE3_TYPE_OBJECT`. This tells parsers the root is an Object (key-value pairs).
-*   **Generation (High 24 bits)**: `0x00000e` -> `14`. The generation counter increments with mutations.
-    *   *What is this?* Since Lite3 pointers (offsets) are stable but structures can shift during splits, this counter helps invalidating old iterators/cursors if the underlying data version changes.
-
-#### Byte 4-32: Hashes
-A 28-byte array storing 7 `u32` hashes.
-*   `80 76 70 6a ...`: `0x6a707680`. Only the first hash is active because the node has split and most hashes have been pushed down to child nodes.
-
-#### Byte 32-36: SizeKc (`81 03 00 00`)
-Value: `0x00000381`
-
-*   **Key Count (Low 3 bits)**: `1`. The root only directly manages 1 key/separator right now.
-*   **Total Size (High 26 bits)**: `14`. There are 14 total items reachable from this root.
-
-#### Byte 36-64: KvOfs
-A 28-byte array storing 7 `u32` value offsets.
-*   `9d 00 00 00`: Points to **Offset 157** (`0x9D`). This is where the first key `is_pvp_enabled` is located.
-
-#### Byte 64-96: ChildOfs
-A 32-byte array storing 8 `u32` child node offsets.
-*   `e0 00 00 00 ...`: Child 0 location -> **Offset 224** (`0xE0`).
-*   `40 01 00 00 ...`: Child 1 location -> **Offset 320** (`0x140`).
-*   **Significance**: The presence of these offsets confirms the B-Tree has **split**. Keys less than the separator hash go to Child 0, keys greater go to Child 1.
-
----
-
-### Segment 2: Initial Data Allocation (0x60 - 0xE0)
-
-Immediately following the root, data entries are densely packed.
-
-#### Offset 96: String Entry "name"
+### Offset 0: Root Node
+```text
+0000 | 06 0e 00 00 80 76 70 6a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
 ```
-96 | 14 6e 61 6d 65 00 05 0d 00 00 00 53 69 72 20 42 79 74 65 61 6c 6f 74 00
-```
-*   **Key Tag** (`14`): Encodes tag size (1 byte) and key length (4 bytes).
-*   **Key** (`6e...00`): "name\0".
-*   **Type Tag** (`05`): `LITE3_TYPE_STRING`.
-*   **Length** (`0d...`): 13 bytes.
-*   **Value** (`53...00`): "Sir Bytealot\0".
+**Generic Information**:
+- **GenType**: `0x00000e06` (Type: OBJECT, Gen: 14)
+- **Size**: Total 14, Local Keys 1
+- **Hashes**: `6a707680 00000000 00000000 00000000 00000000 00000000 00000000`
+- **Key Offsets**: [157]
+- **Children**: [224, 320]
 
-#### Offset 120: Integer Entry "level"
+### Offset 2: Nested inventory
+```text
+0002 | 00 00 80 76 70 6a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 81 03 ...
 ```
-120 | 18 6c 65 76 65 6c 00 02 3c 00 00 00 00 00 00 00
-```
-*   **Key Tag** (`18`): Encodes key length (5 bytes).
-*   **Key**: "level\0".
-*   **Type Tag** (`02`): `LITE3_TYPE_I64`.
-*   **Value** (`3c...`): `60` (decimal).
+**Generic Information**:
+- **GenType**: `0x76800000` (Type: UNKNOWN, Gen: 7766016)
+- **Size**: Total 160768, Local Keys 0
+- **Hashes**: `00006a70 00000000 00000000 00000000 00000000 00000000 03810000`
+- **Key Offsets**: [14680064]
+- **Children**: [20971520, 1846804480]
 
-#### Offset 136: Float Entry "hit_chance"
+### Offset 3: Nested save_point
+```text
+0003 | 00 80 76 70 6a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 81 03 00 ...
 ```
-136 | 2c 68 69 74 5f 63 68 61 6e 63 65 00 03 66 66 66 66 66 66 ee 3f
-```
-*   **Key Tag** (`2c`): Encodes key length (10 bytes).
-*   **Key**: "hit_chance\0".
-*   **Type Tag** (`03`): `LITE3_TYPE_F64`.
-*   **Value**: `0.95` (IEEE 754 float).
+**Generic Information**:
+- **GenType**: `0x70768000` (Type: UNKNOWN, Gen: 7370368)
+- **Size**: Total 628, Local Keys 0
+- **Hashes**: `0000006a 00000000 00000000 00000000 00000000 00000000 00038100`
+- **Key Offsets**: [57344]
+- **Children**: [81920, 1634604032]
 
-#### Offset 157: Boolean Entry "is_pvp_enabled"
+### Offset 96: Entry "name"
+```text
+0096 | 14 6e 61 6d 65 00 05 0d 00 00 00 53 69 72 20 42 79 74 65 61 6c 6f 74 00
 ```
-157 | 3c 69 73 5f 70 76 70 5f 65 6e 61 62 6c 65 64 00 01 01
-```
-*   **Key**: "is_pvp_enabled\0".
-*   **Type Tag** (`01`): `LITE3_TYPE_BOOL`.
-*   **Value** (`01`): `true`.
+- **Key**: "name" (Len: 5)
+- **Type**: STRING (5)
+- **Value**: "Sir Bytealot"
 
-#### Offset 175: Null Entry "guild"
+### Offset 120: Entry "level"
+```text
+0120 | 18 6c 65 76 65 6c 00 02 3c 00 00 00 00 00 00 00
 ```
-175 | 18 67 75 69 6c 64 00 00
-```
-*   **Key**: "guild\0".
-*   **Type Tag** (`00`): `LITE3_TYPE_NULL`.
-*   **Value**: No payload.
+- **Key**: "level" (Len: 6)
+- **Type**: I64 (2)
+- **Value**: 60
 
-#### Offset 183: Bytes Entry "portrait_raw"
+### Offset 136: Entry "hit_chance"
+```text
+0136 | 2c 68 69 74 5f 63 68 61 6e 63 65 00 03 66 66 66 66 66 66 ee 3f
 ```
-183 | 34 70 6f 72 74 72 61 69 74 5f 72 61 77 00 04 04 00 00 00 ca fe ba be
-```
-*   **Key**: "portrait_raw\0".
-*   **Type Tag** (`04`): `LITE3_TYPE_BYTES`.
-*   **Length**: 4 bytes.
-*   **Value**: `ca fe ba be` (Magic bytes).
+- **Key**: "hit_chance" (Len: 11)
+- **Type**: F64 (3)
+- **Value**: 0.95
 
-#### Offset 206: Empty String "nickname"
+### Offset 157: Entry "is_pvp_enabled"
+```text
+0157 | 3c 69 73 5f 70 76 70 5f 65 6e 61 62 6c 65 64 00 01 01
 ```
-206 | 24 6e 69 63 6b 6e 61 6d 65 00 05 01 00 00 00 00
-```
-*   **Key**: "nickname\0".
-*   **Type Tag** (`05`): `LITE3_TYPE_STRING`.
-*   **Length**: 1 byte.
-*   **Value**: `\0` (Empty).
+- **Key**: "is_pvp_enabled" (Len: 15)
+- **Type**: BOOL (1)
+- **Value**: true
 
----
-
-### Segment 3: Child Nodes (0xE0+)
-
-Navigating down from the root, we land at the child nodes.
-
-#### Offset 224: Child Node A
+### Offset 175: Entry "guild"
+```text
+0175 | 18 67 75 69 6c 64 00 00
 ```
-224 | 06 08 00 00 5a d1 88 0f 3d bc da 0f 14 4a 61 10 ...
-```
-*   **GenType** (`06 08`): Object, Gen 8.
-*   **Role**: This node is a standard B-tree node containing `KvOfs` pointers to a subset of the entries we just listed (like `level`, `stats`, `custom_tag`).
+- **Key**: "guild" (Len: 6)
+- **Type**: NULL (0)
+- **Value**: null
 
-#### Offset 320: Child Node B
+### Offset 183: Entry "portrait_raw"
+```text
+0183 | 34 70 6f 72 74 72 61 69 74 5f 72 61 77 00 04 04 00 00 00 ca fe ba be
 ```
-320 | 06 00 00 00 46 0c 9b 7c cb 9e 5c 81 ...
-```
-*   **GenType** (`06 00`): Object, Gen 0.
-*   **Role**: This node handles the other half of the hash space (e.g. `name`, `inventory`).
+- **Key**: "portrait_raw" (Len: 13)
+- **Type**: BYTES (4)
+- **Value**: Bytes[4] cafebabe...
 
----
+### Offset 206: Entry "nickname"
+```text
+0206 | 24 6e 69 63 6b 6e 61 6d 65 00 05 01 00 00 00 00
+```
+- **Key**: "nickname" (Len: 9)
+- **Type**: STRING (5)
+- **Value**: ""
 
-### Segment 4: Nested Structures and Optimizations
+### Gap / Padding / Unreachable (Offset 222 - 224)
+*   2 bytes of unaccounted data (likely padding or alignment).
 
-#### Offset 434: Empty Array "active_buffs"
+### Offset 224: Child Node @ 224
+```text
+0224 | 06 08 00 00 5a d1 88 0f 3d bc da 0f 14 4a 61 10 1b ec 70 10 2b ec 33 2e 96 cf 62 3d dd 71 69 54 ...
 ```
-434 | 34 61 63 74 69 76 65 5f 62 75 66 66 73 00 07 00 00 00 00
-```
-*   **Type Tag** (`07`): `LITE3_TYPE_ARRAY`.
-*   **Payload** (`00...`): **Offset 0**.
-*   **Optimization**: Instead of creating a new empty node (96 bytes), the format points to the Root Node (Offset 0). Parsers interpret "Offset 0" in a nested context as a purely empty structure.
+**Generic Information**:
+- **GenType**: `0x00000806` (Type: OBJECT, Gen: 8)
+- **Size**: Total 0, Local Keys 7
+- **Hashes**: `0f88d15a 0fdabc3d 10614a14 1070ec1b 2e33ec2b 3d62cf96 546971dd`
+- **Key Offsets**: [175, 120, 653, 416, 136, 434, 1644]
+- **Children**: []
 
-#### Offset 653: Nested Object "stats"
+### Offset 320: Child Node @ 320
+```text
+0320 | 06 00 00 00 46 0c 9b 7c cb 9e 5c 81 03 ab de 88 f3 6f 69 ac 8f ff 44 af fc dc e6 e5 00 00 00 00 ...
 ```
-653 | 18 73 74 61 74 73 00 06 0a 00 00 30
-```
-*   **Type Tag** (`06`): `LITE3_TYPE_OBJECT`.
-*   **Payload**: **Offset `0x3000000a`** (~805MB?).
-*   *Correction Note*: This offset appears anomalously large in this specific run, potentially due to a memory state issue in the example code's interaction with the context pointer. Physically, however, this should point to the section of the buffer where the "stats" node resides (likely Offset `672` based on surrounding data).
+**Generic Information**:
+- **GenType**: `0x00000006` (Type: OBJECT, Gen: 0)
+- **Size**: Total 0, Local Keys 6
+- **Hashes**: `7c9b0c46 815c9ecb 88deab03 ac696ff3 af44ff8f e5e6dcfc 00000000`
+- **Key Offsets**: [96, 206, 183, 1229, 1092, 545]
+- **Children**: []
 
-#### Offset 1092: Array "spell_book"
+### Offset 416: Entry "custom_tag"
+```text
+0416 | 2c 63 75 73 74 6f 6d 5f 74 61 67 00 04 00 00 00 00
 ```
+- **Key**: "custom_tag" (Len: 11)
+- **Type**: BYTES (4)
+- **Value**: Bytes[0] ...
+
+### Gap / Padding / Unreachable (Offset 433 - 434)
+*   1 bytes of unaccounted data (likely padding or alignment).
+
+### Offset 434: Entry "active_buffs"
+```text
+0434 | 34 61 63 74 69 76 65 5f 62 75 66 66 73 00 07 00 00 00 00
+```
+- **Key**: "active_buffs" (Len: 13)
+- **Type**: ARRAY (7)
+- **Value**: Pointer -> 0
+- **Optimization**: Points to Root(0) as Empty Structure
+
+### Gap / Padding / Unreachable (Offset 453 - 545)
+*   92 bytes of unaccounted data (likely padding or alignment).
+
+### Offset 545: Entry "pet_stats"
+```text
+0545 | 28 70 65 74 5f 73 74 61 74 73 00 06 00 00 00 00
+```
+- **Key**: "pet_stats" (Len: 10)
+- **Type**: OBJECT (6)
+- **Value**: Pointer -> 0
+- **Optimization**: Points to Root(0) as Empty Structure
+
+### Gap / Padding / Unreachable (Offset 561 - 653)
+*   92 bytes of unaccounted data (likely padding or alignment).
+
+### Offset 653: Entry "stats"
+```text
+0653 | 18 73 74 61 74 73 00 06 0a 00 00 30
+```
+- **Key**: "stats" (Len: 6)
+- **Type**: OBJECT (6)
+- **Value**: Pointer -> 805306378
+- **Error**: Pointer 805306378 out of bounds
+
+### Gap / Padding / Unreachable (Offset 665 - 1092)
+*   427 bytes of unaccounted data (likely padding or alignment).
+
+### Offset 1092: Entry "spell_book"
+```text
 1092 | 2c 73 70 65 6c 6c 5f 62 6f 6f 6b 00 07 03 00 00 00
 ```
-*   **Type Tag** (`07`): `LITE3_TYPE_ARRAY`.
-*   **Payload**: **Offset 3**.
-*   *Note*: Points to the node managing the array's integer keys (0, 1, 2).
+- **Key**: "spell_book" (Len: 11)
+- **Type**: ARRAY (7)
+- **Value**: Pointer -> 3
+- **Recursion**: parsing nested node at 3
 
-## 5. Summary of Key Concepts
+### Gap / Padding / Unreachable (Offset 1109 - 1229)
+*   120 bytes of unaccounted data (likely padding or alignment).
+
+### Offset 1229: Entry "inventory"
+```text
+1229 | 28 69 6e 76 65 6e 74 6f 72 79 00 07 02 00 00 00
+```
+- **Key**: "inventory" (Len: 10)
+- **Type**: ARRAY (7)
+- **Value**: Pointer -> 2
+- **Recursion**: parsing nested node at 2
+
+### Gap / Padding / Unreachable (Offset 1245 - 1644)
+*   399 bytes of unaccounted data (likely padding or alignment).
+
+### Offset 1644: Entry "save_point"
+```text
+1644 | 2c 73 61 76 65 5f 70 6f 69 6e 74 00 07 03 00 00 00
+```
+- **Key**: "save_point" (Len: 11)
+- **Type**: ARRAY (7)
+- **Value**: Pointer -> 3
+- **Recursion**: parsing nested node at 3
+
+### Remaining Data (Offset 1661 - 1900)
+*   Trailing bytes.
+
+## 5. B-Tree Visualization
+
+The following graph shows the logical structure derived from the binary data.
+
+```mermaid
+graph TD
+    classDef node fill:#f9f,stroke:#333;
+    classDef entry fill:#e1f5fe,stroke:#333;
+    N0["Root Node (OBJECT)\nSize: 14"]:::node
+    N224["Child Node @ 224 (OBJECT)\nSize: 0"]:::node
+    N175["Entry: guild\nnull"]:::entry
+    N120["Entry: level\n60"]:::entry
+    N653["Entry: stats\nPointer -> 805306378"]:::entry
+    N416["Entry: custom_tag\nBytes[0] ..."]:::entry
+    N136["Entry: hit_chance\n0.95"]:::entry
+    N434["Entry: active_buffs\nPointer -> 0"]:::entry
+    N1644["Entry: save_point\nPointer -> 3"]:::entry
+    N3["Nested save_point (UNKNOWN)\nSize: 628"]:::entry
+    N320["Child Node @ 320 (OBJECT)\nSize: 0"]:::node
+    N96["Entry: name\n'Sir Bytealot'"]:::entry
+    N206["Entry: nickname\n''"]:::entry
+    N183["Entry: portrait_raw\nBytes[4] cafebabe..."]:::entry
+    N1229["Entry: inventory\nPointer -> 2"]:::entry
+    N2["Nested inventory (UNKNOWN)\nSize: 160768"]:::entry
+    N1092["Entry: spell_book\nPointer -> 3"]:::entry
+    N545["Entry: pet_stats\nPointer -> 0"]:::entry
+    N157["Entry: is_pvp_enabled\ntrue"]:::entry
+    N0 -- "Child 0" --> N224
+    N224 -- "Key[0]" --> N175
+    N224 -- "Key[1]" --> N120
+    N653 -- "BadPtr" --> Missing(805306378)
+    N224 -- "Key[2]" --> N653
+    N224 -- "Key[3]" --> N416
+    N224 -- "Key[4]" --> N136
+    N434 -- "Nested(Empty)" --> N0
+    N224 -- "Key[5]" --> N434
+    N3 -- "Child 0" --> Missing(81920)
+    N3 -- "Child 7" --> Missing(1634604032)
+    N3 -- "Key[6]" --> Missing(57344)
+    N1644 -- "Nested" --> N3
+    N224 -- "Key[6]" --> N1644
+    N0 -- "Child 1" --> N320
+    N320 -- "Key[0]" --> N96
+    N320 -- "Key[1]" --> N206
+    N320 -- "Key[2]" --> N183
+    N2 -- "Child 0" --> Missing(20971520)
+    N2 -- "Child 7" --> Missing(1846804480)
+    N2 -- "Key[6]" --> Missing(14680064)
+    N1229 -- "Nested" --> N2
+    N320 -- "Key[3]" --> N1229
+    N1092 -- "Nested" --> N3
+    N320 -- "Key[4]" --> N1092
+    N545 -- "Nested(Empty)" --> N0
+    N320 -- "Key[5]" --> N545
+    N0 -- "Key[0]" --> N157
+
+```
+
+## 6. Summary of Key Concepts
 
 1.  **Append-Only**: Data is never moved. New entries are written to the end of the buffer.
 2.  **B-Tree Indexing**: 96-byte Nodes are scattered throughout the file. They form a tree structure to index the data entries.
