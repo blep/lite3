@@ -357,7 +357,7 @@ Value: `0x00000006` (KeyCount: 6, Total Size: 0)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 9: "active_buffs" (Offset 434)
-**Total Size**: 14 bytes
+**Total Size**: 110 bytes (Includes 96-byte Inline Node + 14 bytes for Key/Tag)
 **Raw Data**: `34 61 63 74 69 76 65 5f 62 75 66 66 73 00`
 
 | Offset | Bytes | Interpretation |
@@ -406,7 +406,7 @@ Value: `0x00000000` (KeyCount: 0, Total Size: 0)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 10: "pet_stats" (Offset 545)
-**Total Size**: 11 bytes
+**Total Size**: 107 bytes (Includes 96-byte Inline Node + 11 bytes for Key/Tag)
 **Raw Data**: `28 70 65 74 5f 73 74 61 74 73 00`
 
 | Offset | Bytes | Interpretation |
@@ -455,7 +455,7 @@ Value: `0x00000000` (KeyCount: 0, Total Size: 0)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 11: "stats" (Offset 653)
-**Total Size**: 7 bytes
+**Total Size**: 103 bytes (Includes 96-byte Inline Node + 7 bytes for Key/Tag)
 **Raw Data**: `18 73 74 61 74 73 00`
 
 | Offset | Bytes | Interpretation |
@@ -708,7 +708,7 @@ Value: `0x00000005` (KeyCount: 5, Total Size: 0)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Data Entry 22: "spell_book" (Offset 1092)
-**Total Size**: 12 bytes
+**Total Size**: 108 bytes (Includes 96-byte Inline Node + 12 bytes for Key/Tag)
 **Raw Data**: `2c 73 70 65 6c 6c 5f 62 6f 6f 6b 00`
 
 | Offset | Bytes | Interpretation |
@@ -790,7 +790,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Data Entry 26: "inventory" (Offset 1229)
-**Total Size**: 11 bytes
+**Total Size**: 107 bytes (Includes 96-byte Inline Node + 11 bytes for Key/Tag)
 **Raw Data**: `28 69 6e 76 65 6e 74 6f 72 79 00`
 
 | Offset | Bytes | Interpretation |
@@ -840,7 +840,7 @@ Value: `0x00000082` (KeyCount: 2, Total Size: 2)
 | - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Data Entry 27: "Index 0" (Offset 1336)
-**Total Size**: 0 bytes
+**Total Size**: 96 bytes (Includes 96-byte Inline Node; Type Tag is aliased with Node Header)
 **Raw Data**: ``
 
 | Offset | Bytes | Interpretation |
@@ -928,7 +928,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 31: "Index 1" (Offset 1488)
-**Total Size**: 0 bytes
+**Total Size**: 96 bytes (Includes 96-byte Inline Node; Type Tag is aliased with Node Header)
 **Raw Data**: ``
 
 | Offset | Bytes | Interpretation |
@@ -1016,7 +1016,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 35: "save_point" (Offset 1644)
-**Total Size**: 12 bytes
+**Total Size**: 108 bytes (Includes 96-byte Inline Node + 12 bytes for Key/Tag)
 **Raw Data**: `2c 73 61 76 65 5f 70 6f 69 6e 74 00`
 
 | Offset | Bytes | Interpretation |
@@ -1090,7 +1090,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Data Entry 38: "Index 2" (Offset 1780)
-**Total Size**: 0 bytes
+**Total Size**: 96 bytes (Includes 96-byte Inline Node; Type Tag is aliased with Node Header)
 **Raw Data**: ``
 
 | Offset | Bytes | Interpretation |

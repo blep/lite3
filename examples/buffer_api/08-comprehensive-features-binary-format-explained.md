@@ -65,6 +65,7 @@ Lite3 buffers are **contiguous** and **append-only**. You can think of the buffe
 1.  **The Root Node (Fixed Size)**: The "Header" of the structure (Offset 0).
 2.  **The Heap**: All data entries and **Child Nodes** are appended here.
 3.  **Inline Nodes**: For nested Objects and Arrays, the value isn't a pointer to somewhere else; instead, a new Node is written *inline* at the value's position.
+    *   Since Nodes must be aligned to 4-byte boundaries (in this configuration), you may see small gaps (1-3 bytes) of padding immediately preceding an Inline Node.
 
 ```text
 +-------------------------------------------------------------+
@@ -220,6 +221,7 @@ This section walks through the file linearly.
             *   Integer value is 20. `20 >> 2 = 5`.
             *   Therefore, the Key is 5 bytes long.
 *   **Inline Nodes**: When a Value Type is `OBJECT` (6) or `ARRAY` (7), the "Value Bytes" are actually a full 96-byte Node structure starting immediately.
+    *   **Optimization**: Because the Node structure starts with a `GenType` field (Lower 8 bits = Type), and the Entry Value starts with a Type Tag byte, these two fields perfectly overlap. The Type Tag of the Entry effectively *is* the first byte of the Inline Node's header. This saves 1 byte for every nested structure.
 
 ### Root Node (Offsets 0-96)
 
@@ -452,7 +454,7 @@ Value: `0x00000006` (KeyCount: 6, Total Size: 0)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 9: "active_buffs" (Offset 434)
-**Total Size**: 14 bytes
+**Total Size**: 110 bytes (Includes 96-byte Inline Node + 14 bytes for Key/Tag)
 **Raw Data**: `34 61 63 74 69 76 65 5f 62 75 66 66 73 00`
 
 | Offset | Bytes | Interpretation |
@@ -501,7 +503,7 @@ Value: `0x00000000` (KeyCount: 0, Total Size: 0)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 10: "pet_stats" (Offset 545)
-**Total Size**: 11 bytes
+**Total Size**: 107 bytes (Includes 96-byte Inline Node + 11 bytes for Key/Tag)
 **Raw Data**: `28 70 65 74 5f 73 74 61 74 73 00`
 
 | Offset | Bytes | Interpretation |
@@ -550,7 +552,7 @@ Value: `0x00000000` (KeyCount: 0, Total Size: 0)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 11: "stats" (Offset 653)
-**Total Size**: 7 bytes
+**Total Size**: 103 bytes (Includes 96-byte Inline Node + 7 bytes for Key/Tag)
 **Raw Data**: `18 73 74 61 74 73 00`
 
 | Offset | Bytes | Interpretation |
@@ -803,7 +805,7 @@ Value: `0x00000005` (KeyCount: 5, Total Size: 0)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Data Entry 22: "spell_book" (Offset 1092)
-**Total Size**: 12 bytes
+**Total Size**: 108 bytes (Includes 96-byte Inline Node + 12 bytes for Key/Tag)
 **Raw Data**: `2c 73 70 65 6c 6c 5f 62 6f 6f 6b 00`
 
 | Offset | Bytes | Interpretation |
@@ -885,7 +887,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Data Entry 26: "inventory" (Offset 1229)
-**Total Size**: 11 bytes
+**Total Size**: 107 bytes (Includes 96-byte Inline Node + 11 bytes for Key/Tag)
 **Raw Data**: `28 69 6e 76 65 6e 74 6f 72 79 00`
 
 | Offset | Bytes | Interpretation |
@@ -935,7 +937,7 @@ Value: `0x00000082` (KeyCount: 2, Total Size: 2)
 | - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Data Entry 27: "Index 0" (Offset 1336)
-**Total Size**: 0 bytes
+**Total Size**: 96 bytes (Includes 96-byte Inline Node; Type Tag is aliased with Node Header)
 **Raw Data**: ``
 
 | Offset | Bytes | Interpretation |
@@ -1023,7 +1025,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 31: "Index 1" (Offset 1488)
-**Total Size**: 0 bytes
+**Total Size**: 96 bytes (Includes 96-byte Inline Node; Type Tag is aliased with Node Header)
 **Raw Data**: ``
 
 | Offset | Bytes | Interpretation |
@@ -1111,7 +1113,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   1 bytes (0x1) likely alignment padding.
 
 ### Data Entry 35: "save_point" (Offset 1644)
-**Total Size**: 12 bytes
+**Total Size**: 108 bytes (Includes 96-byte Inline Node + 12 bytes for Key/Tag)
 **Raw Data**: `2c 73 61 76 65 5f 70 6f 69 6e 74 00`
 
 | Offset | Bytes | Interpretation |
@@ -1185,7 +1187,7 @@ Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Data Entry 38: "Index 2" (Offset 1780)
-**Total Size**: 0 bytes
+**Total Size**: 96 bytes (Includes 96-byte Inline Node; Type Tag is aliased with Node Header)
 **Raw Data**: ``
 
 | Offset | Bytes | Interpretation |
@@ -1376,13 +1378,7 @@ You will notice significant "Gap / Padding" entries (e.g., "152 bytes likely ali
 This happens because **Nodes must be aligned**. In this implementation, the allocator likely enforces strict alignment for the 96-byte Node structures, often rounding up to the next multiple of the alignment capability (e.g., 32 or 64 bytes) or just appending to the end of a block. 
 *   **Observation**: The large gaps often appear before "Inline Nodes" or "Child Nodes". This ensures that the specialized 96-byte structure starts at a clean memory address, which is crucial for performance on some architectures.
 
-### Inline Nodes vs Pointers
+### Inline Nodes vs Structural Offsets
 *   **Root & Children**: The main B-Tree grows by allocating new Child Nodes and pointing to them via offsets (`ChildOfs` array in the parent).
 *   **Recursive Structures**: When you store a nested Object/Array (like `"stats": {...}`), Lite3 doesn't just point to another buffer. It writes a **New Root Node** for that nested structure *right there* in the data stream. We call this an **Inline Node**. 
     *   *Visual*: See `Offset 660` (Inline stats). It is a full B-Tree root for the stats object.
-
-### The "OOB" or "Random" Pointers
-In early debugging, pointers might look wrong. Remember:
-*   **KvOffsets** point to the *Key Tag* byte.
-*   **ChildOffsets** point to the *GenType* byte of a child node.
-*   **Inline Nodes** effectively have their "pointer" as the current stream position.

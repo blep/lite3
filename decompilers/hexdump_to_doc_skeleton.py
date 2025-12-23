@@ -318,13 +318,23 @@ class DocGenerator:
     def format_entry(self, entry, idx, truncate_at_node=False):
         lines = []
         # Calculate size displayed
-        end = entry['inline_node_off'] if truncate_at_node else entry['end']
-        size = end - entry['start']
+        display_end = entry['inline_node_off'] if truncate_at_node else entry['end']
+        
+        # Real total size
+        real_size = entry['end'] - entry['start']
         
         lines.append(f"### Data Entry {idx}: \"{entry['key']}\" (Offset {entry['start']})")
-        lines.append(f"**Total Size**: {size} bytes")
         
-        raw_bytes = self.data[entry['start']:end]
+        size_str = f"**Total Size**: {real_size} bytes"
+        if entry['inline_node_off']:
+            overhead = real_size - 96
+            if overhead > 0:
+                size_str += f" (Includes 96-byte Inline Node + {overhead} bytes for Key/Tag)"
+            else:
+                size_str += " (Includes 96-byte Inline Node; Type Tag is aliased with Node Header)"
+        lines.append(size_str)
+        
+        raw_bytes = self.data[entry['start']:display_end]
         hex_s = raw_bytes.hex()
         # Insert spaces
         hex_s = " ".join([hex_s[i:i+2] for i in range(0, len(hex_s), 2)])
