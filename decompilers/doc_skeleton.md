@@ -1,87 +1,6 @@
-# Lite3 Binary Format: Comprehensive Walkthrough
-
-This document provides a deep dive into the binary structure of a complex Lite3 message, using the output from the `08-comprehensive-features` example. Unlike simpler examples, this file demonstrates **Inline Nodes** (nested Objects and Arrays) and a multi-level B-Tree structure.
-
-## 1. The Data (JSON)
-
-We are analyzing the binary representation of this RPG Character Profile:
-
-```json
-{
-    "guild": null,
-    "level": 60,
-    "stats": {
-        "agi": 13,
-        "cha": 8,
-        "dex": 14,
-        "end": 15,
-        "int": 10,
-        "luc": 9,
-        "per": 11,
-        "str": 18,
-        "vit": 16,
-        "wis": 12
-    },
-    "custom_tag": "",
-    "hit_chance": 0.95,
-    "active_buffs": [],
-    "save_point": [
-        "Dark Forest",
-        1734900000,
-        {
-            "x": 120,
-            "y": 55
-        }
-    ],
-    "is_pvp_enabled": true,
-    "name": "Sir Bytealot",
-    "nickname": "",
-    "portrait_raw": "yv66vg==",
-    "inventory": [
-        {
-            "dmg": 5,
-            "name": "Rusty Sword",
-            "type": "weapon"
-        },
-        {
-            "heal": 50,
-            "name": "Healing Potion",
-            "type": "potion"
-        }
-    ],
-    "spell_book": [
-        101,
-        205,
-        303
-    ],
-    "pet_stats": {}
-}
-```
-
-## 2. High-Level Structure
-
-Lite3 buffers are **contiguous** and **append-only**. You can think of the buffer as being split into logical regions.
-
-1.  **The Root Node (Fixed Size)**: The "Header" of the structure (Offset 0).
-2.  **The Heap**: All data entries and **Child Nodes** are appended here.
-3.  **Inline Nodes**: For nested Objects and Arrays, the value isn't a pointer to somewhere else; instead, a new Node is written *inline* at the value's position.
+## Hex Dump (Annotated)
 
 ```text
-+-------------------------------------------------------------+
-| Offset 0   | Root Node (B-Tree Header)                      |
-| Offset 96  | Data Entry "name" (Key + String Value)         |
-| ...        | ...                                            |
-| Offset 224 | Child Node (Created when Root overflowed)      |
-| ...        | ...                                            |
-| Offset 448 | Inline Node (Nested Array "active_buffs")      |
-+-------------------------------------------------------------+
-```
-
-## 3. Annotated Hex Dump
-
-Here is the raw binary output. The first column is the decimal offset.
-
-```text```text
 Offset | Data (Hex)                                      | ASCII (approx)
 -------+-------------------------------------------------+---------------
 000    | 060e0000 8076706a 00000000 00000000              | .....vpj........
@@ -203,16 +122,9 @@ Offset | Data (Hex)                                      | ASCII (approx)
 1856    | 00000000 00000000 00000000 00000000              | ................
 1872    | 00000000 08780002 78000000 00000000              | .....x..x.......
 1888    | 08790002 37000000 00000000                       | .y..7.......
-``````
+```
 
-## 4. Byte-by-Byte Breakdown
-
-This section walks through the file linearly.
-
-### Key Concepts for this Breakdown:
-*   **Nodes**: 96-byte blocks containing B-Tree metadata (Type, Key Count, Child Pointers).
-*   **Entries**: Variable-length data blocks. Format: `[KeyTagEncoded] [KeyBytes] [ValueType] [ValueBytes]`
-*   **Inline Nodes**: When a Value Type is `OBJECT` (6) or `ARRAY` (7), the "Value Bytes" are actually a full 96-byte Node structure starting immediately.
+## Detailed Breakdown
 
 ### Root Node (Offsets 0-96)
 
@@ -773,8 +685,11 @@ Pointers to Entries: 1752, 1769, 1780
 | Offset | Bytes | Interpretation |
 | :--- | :--- | :--- |
 | **1780** | `06` | **TypeTag**: OBJECT (6) |
-| ... | ... | *Inline Node follows immediately...* |```mermaid
+| ... | ... | *Inline Node follows immediately...* |
 
+## B-Tree Visualization
+
+```mermaid
 graph TD
 classDef node fill:#f9f,stroke:#333;
 classDef entry fill:#e1f5fe,stroke:#333;
@@ -866,24 +781,4 @@ classDef entry fill:#e1f5fe,stroke:#333;
     E545["Key: pet_stats<br>Inline Node"]:::entry
     E545 -.-> N556
     E157["Key: is_pvp_enabled<br>Type: 1"]:::entry
-
 ```
-
-## 6. Implementation Notes & FAQ
-
-### Why so much Padding?
-You will notice significant "Gap / Padding" entries (e.g., "152 bytes likely alignment padding").
-This happens because **Nodes must be aligned**. In this implementation, the allocator likely enforces strict alignment for the 96-byte Node structures, often rounding up to the next multiple of the alignment capability (e.g., 32 or 64 bytes) or just appending to the end of a block. 
-*   **Observation**: The large gaps often appear before "Inline Nodes" or "Child Nodes". This ensures that the specialized 96-byte structure starts at a clean memory address, which is crucial for performance on some architectures.
-
-### Inline Nodes vs Pointers
-*   **Root & Children**: The main B-Tree grows by allocating new Child Nodes and pointing to them via offsets (`ChildOfs` array in the parent).
-*   **Recursive Structures**: When you store a nested Object/Array (like `"stats": {...}`), Lite3 doesn't just point to another buffer. It writes a **New Root Node** for that nested structure *right there* in the data stream. We call this an **Inline Node**. 
-    *   *Visual*: See `Offset 660` (Inline stats). It is a full B-Tree root for the stats object.
-
-### The "OOB" or "Random" Pointers
-In early debugging, pointers might look wrong. Remember:
-*   **KvOffsets** point to the *Key Tag* byte.
-*   **ChildOffsets** point to the *GenType* byte of a child node.
-*   **Inline Nodes** effectively have their "pointer" as the current stream position.
-
