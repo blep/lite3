@@ -773,7 +773,9 @@ Pointers to Entries: 1752, 1769, 1780
 | Offset | Bytes | Interpretation |
 | :--- | :--- | :--- |
 | **1780** | `06` | **TypeTag**: OBJECT (6) |
-| ... | ... | *Inline Node follows immediately...* |```mermaid
+| ... | ... | *Inline Node follows immediately...* |
+
+```mermaid
 
 graph TD
 classDef node fill:#f9f,stroke:#333;
