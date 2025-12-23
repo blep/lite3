@@ -81,7 +81,7 @@ Lite3 buffers are **contiguous** and **append-only**. You can think of the buffe
 
 Here is the raw binary output. The first column is the decimal offset.
 
-```text```text
+```text
 Offset | Data (Hex)                                      | ASCII (approx)
 -------+-------------------------------------------------+---------------
 000    | 060e0000 8076706a 00000000 00000000              | .....vpj........
@@ -203,7 +203,7 @@ Offset | Data (Hex)                                      | ASCII (approx)
 1856    | 00000000 00000000 00000000 00000000              | ................
 1872    | 00000000 08780002 78000000 00000000              | .....x..x.......
 1888    | 08790002 37000000 00000000                       | .y..7.......
-``````
+```
 
 ## 4. Byte-by-Byte Breakdown
 
