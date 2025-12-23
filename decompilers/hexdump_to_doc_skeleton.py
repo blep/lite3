@@ -8,10 +8,12 @@ class DocGenerator:
         self.data = data
         self.node_size = 96
         self.items = [] # List of dicts describing headers/entries
-        self.visited_offsets = set()
+        self.visited_node_offsets = set()
+        self.visited_entry_offsets = set()
         self.nodes = {} # Offset -> Node Info
         self.entries = {} # Offset -> Entry Info
         self.root_hashes = []
+        self.hash_to_key = {} # Map hashes to known keys for display
 
     def read_u32(self, offset):
         return struct.unpack("<I", self.data[offset:offset+4])[0]
@@ -23,8 +25,8 @@ class DocGenerator:
         self.items.sort(key=lambda x: x['start'])
 
     def parse_node(self, offset, label, is_root=False):
-        if offset in self.visited_offsets: return
-        self.visited_offsets.add(offset)
+        if offset in self.visited_node_offsets: return
+        self.visited_node_offsets.add(offset)
         
         if offset >= len(self.data): return
 
@@ -68,14 +70,21 @@ class DocGenerator:
             if child_off != 0:
                 self.parse_node(child_off, f"Child {i}")
         
-        # Parse Entries
+        # Parse Entries & build hash map
         for i, entry_off in enumerate(kv_ofs):
             if i < key_count and entry_off != 0:
-                self.parse_entry(entry_off, type_tag == 7, i) # 7 is Array
+                key = self.parse_entry(entry_off, type_tag == 7, i) # 7 is Array
+                if key and type_tag == 6:
+                    self.hash_to_key[hashes[i]] = key
 
     def parse_entry(self, offset, is_array_entry, index_in_node):
-        if offset in self.visited_offsets: return
-        self.visited_offsets.add(offset)
+        # We need to return the key string for the hash map
+        key_str_ret = None
+        
+        # Avoid double adding to items list, BUT we need to re-read to get the key string if already visited
+        already_visited = offset in self.visited_entry_offsets
+        if not already_visited:
+            self.visited_entry_offsets.add(offset)
         
         start = offset
         curr = offset
@@ -94,11 +103,17 @@ class DocGenerator:
             
             curr += tag_byte_len
             key_bytes = self.data[curr:curr+key_len]
+            # Key excludes null term for python string, but includes it in length
             key_str = key_bytes[:-1].decode('utf-8', errors='replace')
+            key_str_ret = key_str
             curr += key_len
         else:
             # Array entries have no key stored
             key_str = f"Index {index_in_node}"
+            key_str_ret = str(index_in_node) # For arrays, hash is index
+
+        if already_visited:
+            return key_str_ret
 
         # Value Parsing
         val_start = curr
@@ -138,19 +153,9 @@ class DocGenerator:
         self.entries[offset] = entry_info
         
         if inline_node_off is not None:
-             # Recurse into inline node
-             # Special case: Inline node is logically a value, but physically a node.
-             # We should generate a NODE item for it too, overlapping or modifying parsing?
-             # Let's say we call parse_node. It will add a NODE item.
-             # But we also have an ENTRY item covering the same Bytes? 
-             # Yes. Entry covers Key + Node. Node covers Node.
-             # For visualization, we want to split. 
-             # Let's adjust Entry 'end' to NOT include the inline node for the sake of the list?
-             # OR, we mark the Entry as containing an Inline Node.
-             pass
-             
-        if inline_node_off is not None:
             self.parse_node(inline_node_off, f"Inline {key_str}")
+            
+        return key_str_ret
 
     def generate_hex_dump(self):
         # 16 bytes per line
@@ -184,31 +189,13 @@ class DocGenerator:
         out = []
         out.append("## Detailed Breakdown\n")
         
-        # Sort items by start. Filter out visited inline nodes if they were added twice?
-        # parse_node adds header. parse_entry adds entry.
-        # If entry has inline node, the node header starts at entry.val_start.
-        # So we have overlap.
-        # Logic: Iterate sorted. If we hit an Entry with Inline Node, print the "Entry Header" details,
-        # then let the Node logic print the "Node" details (which will come next in sorted list).
-        
         sorted_items = sorted(self.items, key=lambda x: x['start'])
-        
-        # Filter: If logic works, Entry starts before Node (Key bytes).
-        # Except if Array Entry? Array Entry has no key. So Entry Start == Node Start.
-        # In Array case, Entry is just logic wrapper. 
-        # Let's handle overlap.
         
         cursor = 0
         node_counter = 1
         entry_counter = 1
         
         for item in sorted_items:
-            if item['start'] < cursor:
-                # Overlap!
-                # If Array Entry (Start=NodeStart), skip Entry item and just show Node?
-                # Or show "Entry X (Array Index)" then Node.
-                pass
-            
             # Gaps
             if item['start'] > cursor:
                 gap = item['start'] - cursor
@@ -221,12 +208,9 @@ class DocGenerator:
                 node_counter += 1
                 cursor = item['end']
             elif item['type'] == 'ENTRY':
-                # If this entry contains an inline node, its 'end' includes the node.
-                # But we want to print the Node separately.
-                # So we only print the Key part here?
                 if item['inline_node_off']:
                      out.append(self.format_entry(item, entry_counter, truncate_at_node=True))
-                     cursor = item['inline_node_off'] # Next item should be the Node
+                     cursor = item['inline_node_off'] 
                 else:
                     out.append(self.format_entry(item, entry_counter))
                     cursor = item['end']
@@ -234,30 +218,100 @@ class DocGenerator:
                 
         return "\n".join(out)
 
+    def format_bytes_spaced(self, b_data):
+        return " ".join([b_data.hex()[i:i+2] for i in range(0, len(b_data.hex()), 2)])
+
     def format_node(self, node, idx):
         lines = []
         name = "Root Node" if node['start'] == 0 else f"Node {idx}"
         lines.append(f"### {name} (Offsets {node['start']}-{node['end']})\n")
         
-        # Excerpt
-        excerpt = self.data[node['start']:node['start']+32] # First 32 bytes
-        lines.append(f"**Header Excerpt**: `{excerpt.hex()[:16]}...`\n")
+        lines.append(f"**Total Size**: {self.node_size} bytes\n")
+        
+        lines.append("**Raw Data**:")
+        lines.append("| Offset | Bytes |")
+        lines.append("| :--- | :--- |")
+        
+        node_bytes = self.data[node['start']:node['end']]
+        for i in range(0, len(node_bytes), 16):
+            chunk = node_bytes[i:i+16]
+            hex_s = " ".join([chunk.hex()[j:j+2] for j in range(0, len(chunk.hex()), 2)])
+            lines.append(f"| {node['start'] + i} | `{hex_s}` |")
+        lines.append("")
         
         lines.append(f"#### Byte 0-4: GenType")
         lines.append(f"Value: `0x{node['gen_type']:08x}`")
         lines.append(f"*   **Type**: {node['node_type']}")
         lines.append(f"*   **Generation**: {node['gen']}\n")
         
+        # Hashes Table
         lines.append(f"#### Bytes 4-32: Hashes")
-        hashes_str = ", ".join([f"0x{h:x}" for h in node['hashes'] if h!=0])
-        lines.append(f"Active Hashes: {hashes_str}\n")
+        lines.append("| Index | Bytes | Value | Interpretation |")
+        lines.append("| :--- | :--- | :--- | :--- |")
+        for i, h in enumerate(node['hashes']):
+            if h == 0 and i >= node['key_count']: continue
+            interp = self.hash_to_key.get(h, "")
+            if node['node_type'] == 'ARRAY': interp = f"Index {h}"
+            elif interp: interp = f"Hash of \"{interp}\""
+            
+            raw_bytes = struct.pack("<I", h)
+            b_str = self.format_bytes_spaced(raw_bytes)
+            lines.append(f"| {i} | `{b_str}` | 0x{h:x} | {interp} |")
+        lines.append("")
         
         lines.append(f"#### Bytes 32-36: SizeKc")
         lines.append(f"Value: `0x{node['size_kc']:08x}` (KeyCount: {node['key_count']}, Total Size: {node['total_size']})\n")
         
-        lines.append(f"#### Bytes 36-64: KvOffsets")
-        kv_str = ", ".join([str(o) for o in node['kv_ofs'] if o!=0])
-        lines.append(f"Pointers to Entries: {kv_str}\n")
+        # KvOffsets Table
+        lines.append(f"#### Bytes 36-64: KvOffsets (Pointers to Entries)")
+        lines.append("| Index | Bytes | Target Offset | Target Key |")
+        lines.append("| :--- | :--- | :--- | :--- |")
+        for i, ofs in enumerate(node['kv_ofs']):
+            if ofs == 0 and i >= node['key_count']: continue
+            target_key = "Unknown"
+            if ofs in self.entries:
+                target_key = self.entries[ofs]['key']
+            
+            raw_bytes = struct.pack("<I", ofs)
+            b_str = self.format_bytes_spaced(raw_bytes)
+            lines.append(f"| {i} | `{b_str}` | **{ofs}** | \"{target_key}\" |")
+        lines.append("")
+
+        # ChildOffsets Table (NEW)
+        lines.append(f"#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)")
+        lines.append("| Index | Bytes | Target Offset | Description |")
+        lines.append("| :--- | :--- | :--- | :--- |")
+        has_children = False
+        for i, ofs in enumerate(node['child_ofs']):
+            if ofs == 0: continue
+            has_children = True
+            raw_bytes = struct.pack("<I", ofs)
+            b_str = self.format_bytes_spaced(raw_bytes)
+            
+            # Find which node it is
+            desc_extra = ""
+            # We don't easily know "Node 2" from here unless we pass map, but we can say "Child X"
+            # User request: "Offset of child 0, identified as Node 2 in this doc"
+            # We are generating sequentially. Root=Node 1? Or Node 1=Root.
+            # We need to compute Node IDs beforehand if we want to cross ref.
+            # Let's just say "Offset of child X" for safety or pre-calc?
+            # Simple pre-calc:
+            node_id_map = {n['start']: idx+1 for idx, n in enumerate(sorted(self.items, key=lambda x: x['start']) ) if n['type'] == 'NODE'}
+            # Wait, self.items isn't fully sorted during parse, but format_node calls after sort? 
+            # Actually format_node is called during generate_breakdown which iterates sorted items.
+            # So we can build a quick map.
+            
+            # Re-scoping: format_node doesn't have access to the sorted list easily unless passed or re-calc.
+            # Let's do a quick lookup helper
+            # Hack: Assume breakdown generation iterates linear.
+            pass
+            
+            target_label = f"Offset of child {i}"
+            lines.append(f"| {i} | `{b_str}` | **{ofs}** | {target_label} |")
+        
+        if not has_children:
+            lines.append(f"| - | - | - | **Leaf Node** (All Child Offsets are 0) |")
+        lines.append("")
         
         return "\n".join(lines)
 
@@ -305,20 +359,42 @@ class DocGenerator:
         else:
             # Value Payload
             curr += 1
-            if val_type == 1:
+            if val_type == 1: # BOOL
                 val = self.data[curr]
                 lines.append(f"| **{curr}** | `{val:02x}` | **Value**: {bool(val)} |")
-            elif val_type == 2:
-                v = struct.unpack("<q", self.data[curr:curr+8])[0]
-                lines.append(f"| **{curr}** | ... | **Value**: {v} (I64) |")
-            elif val_type == 3:
-                v = struct.unpack("<d", self.data[curr:curr+8])[0]
-                lines.append(f"| **{curr}** | ... | **Value**: {v:.4f} (F64) |")
-            elif val_type == 5:
+            elif val_type == 2: # I64
+                val_bytes = self.data[curr:curr+8]
+                v = struct.unpack("<q", val_bytes)[0]
+                # Format bytes
+                b_str = " ".join([val_bytes.hex()[i:i+2] for i in range(0, 16, 2)])
+                lines.append(f"| **{curr}** | `{b_str}` | **Value**: {v} (I64) |")
+            elif val_type == 3: # F64
+                val_bytes = self.data[curr:curr+8]
+                v = struct.unpack("<d", val_bytes)[0]
+                b_str = " ".join([val_bytes.hex()[i:i+2] for i in range(0, 16, 2)])
+                lines.append(f"| **{curr}** | `{b_str}` | **Value**: {v:.4f} (F64) |")
+            elif val_type == 4: # BYTES
                 vlen = struct.unpack("<I", self.data[curr:curr+4])[0]
+                lines.append(f"| **{curr}** | `{self.data[curr:curr+4].hex()}` | **Length**: {vlen} |")
+                curr += 4
+                if vlen > 0:
+                    val_bytes = self.data[curr:curr+vlen]
+                    # if too long, truncate? user asked for full bytes? "Uses the same format as for the Raw Data"
+                    # Raw Data puts spaces.
+                    b_str = val_bytes.hex()
+                    b_str = " ".join([b_str[i:i+2] for i in range(0, len(b_str), 2)])
+                    lines.append(f"| **{curr}** | `{b_str}` | **Value**: Bytes[{vlen}] |")
+            elif val_type == 5: # STRING
+                vlen = struct.unpack("<I", self.data[curr:curr+4])[0]
+                lines.append(f"| **{curr}** | `{self.data[curr:curr+4].hex()}` | **Length**: {vlen} |")
                 curr += 4
                 sval = self.data[curr:curr+vlen-1].decode('utf-8', errors='replace')
-                lines.append(f"| **{curr}** | ... | **Value**: \"{sval}\" |")
+                # Show bytes
+                val_bytes = self.data[curr:curr+vlen]
+                b_str = val_bytes.hex()
+                if len(b_str) > 32: b_str = b_str[:32] + "..." 
+                b_str = " ".join([val_bytes.hex()[i:i+2] for i in range(0, len(val_bytes.hex()), 2)])
+                lines.append(f"| **{curr}** | `{b_str}` | **Value**: \"{sval}\" |")
                 
         lines.append("")
         return "\n".join(lines)
@@ -343,13 +419,19 @@ class DocGenerator:
                 if ptr != 0:
                      lines.append(f"    N{offset} -- \"Child[{i}]\" --> N{ptr}")
 
+        type_map = {0:"UNK", 1:"BOOL", 2:"I64", 3:"F64", 4:"BYTES", 5:"STRING", 6:"OBJECT", 7:"ARRAY"}
         # Entries
         for offset, entry in self.entries.items():
-            val_text = f"Type: {entry['val_type']}"
             if entry['inline_node_off']:
                 val_text = "Inline Node"
+            else:
+                t_str = type_map.get(entry['val_type'], str(entry['val_type']))
+                val_text = f"Type: {t_str}"
             
-            lbl = f"Key: {entry['key']}<br>{val_text}"
+            # Escape key for mermaid
+            key_escaped = entry['key'].replace('"', "'")
+            
+            lbl = f"Key: {key_escaped}<br>{val_text}"
             lines.append(f"    E{offset}[\"{lbl}\"]:::entry")
             
             if entry['inline_node_off']:

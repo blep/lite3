@@ -212,11 +212,28 @@ This section walks through the file linearly.
 ### Key Concepts for this Breakdown:
 *   **Nodes**: 96-byte blocks containing B-Tree metadata (Type, Key Count, Child Pointers).
 *   **Entries**: Variable-length data blocks. Format: `[KeyTagEncoded] [KeyBytes] [ValueType] [ValueBytes]`
+    *   **KeyTag Encoding**: The KeyTag encodes the byte length of the Key string. It is a variable-length integer.
+        *   **Tag Width**: The lowest 2 bits of the first byte determine the width of the tag itself (0=`1 byte`, 1=`2 bytes`, etc.).
+        *   **Key Length**: The full integer value of the tag bytes is right-shifted by 2 (`>> 2`) to obtain the Key Length.
+        *   *Example*: Hex `14` is binary `0001 0100`.
+            *   Lower 2 bits are `00` -> Tag is 1 byte long.
+            *   Integer value is 20. `20 >> 2 = 5`.
+            *   Therefore, the Key is 5 bytes long.
 *   **Inline Nodes**: When a Value Type is `OBJECT` (6) or `ARRAY` (7), the "Value Bytes" are actually a full 96-byte Node structure starting immediately.
 
 ### Root Node (Offsets 0-96)
 
-**Header Excerpt**: `060e00008076706a...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 0 | `06 0e 00 00 80 76 70 6a 00 00 00 00 00 00 00 00` |
+| 16 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 32 | `81 03 00 00 9d 00 00 00 00 00 00 00 00 00 00 00` |
+| 48 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 64 | `e0 00 00 00 40 01 00 00 00 00 00 00 00 00 00 00` |
+| 80 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000e06`
@@ -224,13 +241,23 @@ Value: `0x00000e06`
 *   **Generation**: 14
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0x6a707680
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `80 76 70 6a` | 0x6a707680 | Hash of "is_pvp_enabled" |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000381` (KeyCount: 1, Total Size: 14)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 157
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `9d 00 00 00` | **157** | "is_pvp_enabled" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| 0 | `e0 00 00 00` | **224** | Offset of child 0 |
+| 1 | `40 01 00 00` | **320** | Offset of child 1 |
 
 ### Data Entry 1: "name" (Offset 96)
 **Total Size**: 24 bytes
@@ -241,7 +268,8 @@ Pointers to Entries: 157
 | **96** | `14` | **KeyTag**: Len 1. KeyLen 5 |
 | **97** | `6e616d6500` | **Key**: "name" |
 | **102** | `05` | **TypeTag**: STRING (5) |
-| **107** | ... | **Value**: "Sir Bytealot" |
+| **103** | `0d000000` | **Length**: 13 |
+| **107** | `53 69 72 20 42 79 74 65 61 6c 6f 74 00` | **Value**: "Sir Bytealot" |
 
 ### Data Entry 2: "level" (Offset 120)
 **Total Size**: 16 bytes
@@ -252,7 +280,7 @@ Pointers to Entries: 157
 | **120** | `18` | **KeyTag**: Len 1. KeyLen 6 |
 | **121** | `6c6576656c00` | **Key**: "level" |
 | **127** | `02` | **TypeTag**: I64 (2) |
-| **128** | ... | **Value**: 60 (I64) |
+| **128** | `3c 00 00 00 00 00 00 00` | **Value**: 60 (I64) |
 
 ### Data Entry 3: "hit_chance" (Offset 136)
 **Total Size**: 21 bytes
@@ -263,7 +291,7 @@ Pointers to Entries: 157
 | **136** | `2c` | **KeyTag**: Len 1. KeyLen 11 |
 | **137** | `6869745f6368616e636500` | **Key**: "hit_chance" |
 | **148** | `03` | **TypeTag**: F64 (3) |
-| **149** | ... | **Value**: 0.9500 (F64) |
+| **149** | `66 66 66 66 66 66 ee 3f` | **Value**: 0.9500 (F64) |
 
 ### Data Entry 4: "is_pvp_enabled" (Offset 157)
 **Total Size**: 18 bytes
@@ -295,6 +323,8 @@ Pointers to Entries: 157
 | **183** | `34` | **KeyTag**: Len 1. KeyLen 13 |
 | **184** | `706f7274726169745f72617700` | **Key**: "portrait_raw" |
 | **197** | `04` | **TypeTag**: BYTES (4) |
+| **198** | `04000000` | **Length**: 4 |
+| **202** | `ca fe ba be` | **Value**: Bytes[4] |
 
 ### Data Entry 7: "nickname" (Offset 206)
 **Total Size**: 16 bytes
@@ -305,14 +335,25 @@ Pointers to Entries: 157
 | **206** | `24` | **KeyTag**: Len 1. KeyLen 9 |
 | **207** | `6e69636b6e616d6500` | **Key**: "nickname" |
 | **216** | `05` | **TypeTag**: STRING (5) |
-| **221** | ... | **Value**: "" |
+| **217** | `01000000` | **Length**: 1 |
+| **221** | `00` | **Value**: "" |
 
 ### Gap / Padding (Offsets 222-224)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Node 2 (Offsets 224-320)
 
-**Header Excerpt**: `060800005ad1880f...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 224 | `06 08 00 00 5a d1 88 0f 3d bc da 0f 14 4a 61 10` |
+| 240 | `1b ec 70 10 2b ec 33 2e 96 cf 62 3d dd 71 69 54` |
+| 256 | `07 00 00 00 af 00 00 00 78 00 00 00 8d 02 00 00` |
+| 272 | `a0 01 00 00 88 00 00 00 b2 01 00 00 6c 06 00 00` |
+| 288 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 304 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000806`
@@ -320,17 +361,48 @@ Value: `0x00000806`
 *   **Generation**: 8
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0xf88d15a, 0xfdabc3d, 0x10614a14, 0x1070ec1b, 0x2e33ec2b, 0x3d62cf96, 0x546971dd
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `5a d1 88 0f` | 0xf88d15a | Hash of "guild" |
+| 1 | `3d bc da 0f` | 0xfdabc3d | Hash of "level" |
+| 2 | `14 4a 61 10` | 0x10614a14 | Hash of "stats" |
+| 3 | `1b ec 70 10` | 0x1070ec1b | Hash of "custom_tag" |
+| 4 | `2b ec 33 2e` | 0x2e33ec2b | Hash of "hit_chance" |
+| 5 | `96 cf 62 3d` | 0x3d62cf96 | Hash of "active_buffs" |
+| 6 | `dd 71 69 54` | 0x546971dd | Hash of "save_point" |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000007` (KeyCount: 7, Total Size: 0)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 175, 120, 653, 416, 136, 434, 1644
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `af 00 00 00` | **175** | "guild" |
+| 1 | `78 00 00 00` | **120** | "level" |
+| 2 | `8d 02 00 00` | **653** | "stats" |
+| 3 | `a0 01 00 00` | **416** | "custom_tag" |
+| 4 | `88 00 00 00` | **136** | "hit_chance" |
+| 5 | `b2 01 00 00` | **434** | "active_buffs" |
+| 6 | `6c 06 00 00` | **1644** | "save_point" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Node 3 (Offsets 320-416)
 
-**Header Excerpt**: `06000000460c9b7c...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 320 | `06 00 00 00 46 0c 9b 7c cb 9e 5c 81 03 ab de 88` |
+| 336 | `f3 6f 69 ac 8f ff 44 af fc dc e6 e5 00 00 00 00` |
+| 352 | `06 00 00 00 60 00 00 00 ce 00 00 00 b7 00 00 00` |
+| 368 | `cd 04 00 00 44 04 00 00 21 02 00 00 00 00 00 00` |
+| 384 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 400 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000006`
@@ -338,13 +410,32 @@ Value: `0x00000006`
 *   **Generation**: 0
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0x7c9b0c46, 0x815c9ecb, 0x88deab03, 0xac696ff3, 0xaf44ff8f, 0xe5e6dcfc
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `46 0c 9b 7c` | 0x7c9b0c46 | Hash of "name" |
+| 1 | `cb 9e 5c 81` | 0x815c9ecb | Hash of "nickname" |
+| 2 | `03 ab de 88` | 0x88deab03 | Hash of "portrait_raw" |
+| 3 | `f3 6f 69 ac` | 0xac696ff3 | Hash of "inventory" |
+| 4 | `8f ff 44 af` | 0xaf44ff8f | Hash of "spell_book" |
+| 5 | `fc dc e6 e5` | 0xe5e6dcfc | Hash of "pet_stats" |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000006` (KeyCount: 6, Total Size: 0)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 96, 206, 183, 1229, 1092, 545
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `60 00 00 00` | **96** | "name" |
+| 1 | `ce 00 00 00` | **206** | "nickname" |
+| 2 | `b7 00 00 00` | **183** | "portrait_raw" |
+| 3 | `cd 04 00 00` | **1229** | "inventory" |
+| 4 | `44 04 00 00` | **1092** | "spell_book" |
+| 5 | `21 02 00 00` | **545** | "pet_stats" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Data Entry 8: "custom_tag" (Offset 416)
 **Total Size**: 17 bytes
@@ -355,6 +446,7 @@ Pointers to Entries: 96, 206, 183, 1229, 1092, 545
 | **416** | `2c` | **KeyTag**: Len 1. KeyLen 11 |
 | **417** | `637573746f6d5f74616700` | **Key**: "custom_tag" |
 | **428** | `04` | **TypeTag**: BYTES (4) |
+| **429** | `00000000` | **Length**: 0 |
 
 ### Gap / Padding (Offsets 433-434)
 *   1 bytes (0x1) likely alignment padding.
@@ -372,7 +464,17 @@ Pointers to Entries: 96, 206, 183, 1229, 1092, 545
 
 ### Node 4 (Offsets 448-544)
 
-**Header Excerpt**: `0700000000000000...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 448 | `07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 464 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 480 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 496 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 512 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 528 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000007`
@@ -380,13 +482,20 @@ Value: `0x00000007`
 *   **Generation**: 0
 
 #### Bytes 4-32: Hashes
-Active Hashes: 
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000000` (KeyCount: 0, Total Size: 0)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Gap / Padding (Offsets 544-545)
 *   1 bytes (0x1) likely alignment padding.
@@ -404,7 +513,17 @@ Pointers to Entries:
 
 ### Node 5 (Offsets 556-652)
 
-**Header Excerpt**: `0600000000000000...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 556 | `06 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 572 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 588 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 604 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 620 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 636 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000006`
@@ -412,13 +531,20 @@ Value: `0x00000006`
 *   **Generation**: 0
 
 #### Bytes 4-32: Hashes
-Active Hashes: 
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000000` (KeyCount: 0, Total Size: 0)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Gap / Padding (Offsets 652-653)
 *   1 bytes (0x1) likely alignment padding.
@@ -436,7 +562,17 @@ Pointers to Entries:
 
 ### Node 6 (Offsets 660-756)
 
-**Header Excerpt**: `060a00003080880b...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 660 | `06 0a 00 00 30 80 88 0b 00 00 00 00 00 00 00 00` |
+| 676 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 692 | `81 02 00 00 10 03 00 00 00 00 00 00 00 00 00 00` |
+| 708 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 724 | `58 03 00 00 b8 03 00 00 00 00 00 00 00 00 00 00` |
+| 740 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000a06`
@@ -444,13 +580,23 @@ Value: `0x00000a06`
 *   **Generation**: 10
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0xb888030
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `30 80 88 0b` | 0xb888030 | Hash of "int" |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000281` (KeyCount: 1, Total Size: 10)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 784
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `10 03 00 00` | **784** | "int" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| 0 | `58 03 00 00` | **856** | Offset of child 0 |
+| 1 | `b8 03 00 00` | **952** | Offset of child 1 |
 
 ### Data Entry 12: "str" (Offset 756)
 **Total Size**: 14 bytes
@@ -461,7 +607,7 @@ Pointers to Entries: 784
 | **756** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **757** | `73747200` | **Key**: "str" |
 | **761** | `02` | **TypeTag**: I64 (2) |
-| **762** | ... | **Value**: 18 (I64) |
+| **762** | `12 00 00 00 00 00 00 00` | **Value**: 18 (I64) |
 
 ### Data Entry 13: "dex" (Offset 770)
 **Total Size**: 14 bytes
@@ -472,7 +618,7 @@ Pointers to Entries: 784
 | **770** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **771** | `64657800` | **Key**: "dex" |
 | **775** | `02` | **TypeTag**: I64 (2) |
-| **776** | ... | **Value**: 14 (I64) |
+| **776** | `0e 00 00 00 00 00 00 00` | **Value**: 14 (I64) |
 
 ### Data Entry 14: "int" (Offset 784)
 **Total Size**: 14 bytes
@@ -483,7 +629,7 @@ Pointers to Entries: 784
 | **784** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **785** | `696e7400` | **Key**: "int" |
 | **789** | `02` | **TypeTag**: I64 (2) |
-| **790** | ... | **Value**: 10 (I64) |
+| **790** | `0a 00 00 00 00 00 00 00` | **Value**: 10 (I64) |
 
 ### Data Entry 15: "vit" (Offset 798)
 **Total Size**: 14 bytes
@@ -494,7 +640,7 @@ Pointers to Entries: 784
 | **798** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **799** | `76697400` | **Key**: "vit" |
 | **803** | `02` | **TypeTag**: I64 (2) |
-| **804** | ... | **Value**: 16 (I64) |
+| **804** | `10 00 00 00 00 00 00 00` | **Value**: 16 (I64) |
 
 ### Data Entry 16: "wis" (Offset 812)
 **Total Size**: 14 bytes
@@ -505,7 +651,7 @@ Pointers to Entries: 784
 | **812** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **813** | `77697300` | **Key**: "wis" |
 | **817** | `02` | **TypeTag**: I64 (2) |
-| **818** | ... | **Value**: 12 (I64) |
+| **818** | `0c 00 00 00 00 00 00 00` | **Value**: 12 (I64) |
 
 ### Data Entry 17: "cha" (Offset 826)
 **Total Size**: 14 bytes
@@ -516,7 +662,7 @@ Pointers to Entries: 784
 | **826** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **827** | `63686100` | **Key**: "cha" |
 | **831** | `02` | **TypeTag**: I64 (2) |
-| **832** | ... | **Value**: 8 (I64) |
+| **832** | `08 00 00 00 00 00 00 00` | **Value**: 8 (I64) |
 
 ### Data Entry 18: "agi" (Offset 840)
 **Total Size**: 14 bytes
@@ -527,14 +673,24 @@ Pointers to Entries: 784
 | **840** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **841** | `61676900` | **Key**: "agi" |
 | **845** | `02` | **TypeTag**: I64 (2) |
-| **846** | ... | **Value**: 13 (I64) |
+| **846** | `0d 00 00 00 00 00 00 00` | **Value**: 13 (I64) |
 
 ### Gap / Padding (Offsets 854-856)
 *   2 bytes (0x2) likely alignment padding.
 
 ### Node 7 (Offsets 856-952)
 
-**Header Excerpt**: `06080000365d880b...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 856 | `06 08 00 00 36 5d 88 0b d1 65 88 0b c6 69 88 0b` |
+| 872 | `1c 6f 88 0b 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 888 | `04 00 00 00 48 03 00 00 3a 03 00 00 02 03 00 00` |
+| 904 | `26 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 920 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 936 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000806`
@@ -542,17 +698,42 @@ Value: `0x00000806`
 *   **Generation**: 8
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0xb885d36, 0xb8865d1, 0xb8869c6, 0xb886f1c
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `36 5d 88 0b` | 0xb885d36 | Hash of "agi" |
+| 1 | `d1 65 88 0b` | 0xb8865d1 | Hash of "cha" |
+| 2 | `c6 69 88 0b` | 0xb8869c6 | Hash of "dex" |
+| 3 | `1c 6f 88 0b` | 0xb886f1c | Hash of "end" |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000004` (KeyCount: 4, Total Size: 0)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 840, 826, 770, 1062
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `48 03 00 00` | **840** | "agi" |
+| 1 | `3a 03 00 00` | **826** | "cha" |
+| 2 | `02 03 00 00` | **770** | "dex" |
+| 3 | `26 04 00 00` | **1062** | "end" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Node 8 (Offsets 952-1048)
 
-**Header Excerpt**: `06000000c98d880b...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 952 | `06 00 00 00 c9 8d 88 0b cc 9c 88 0b 7e ab 88 0b` |
+| 968 | `d8 b6 88 0b 18 bb 88 0b 00 00 00 00 00 00 00 00` |
+| 984 | `05 00 00 00 18 04 00 00 34 04 00 00 f4 02 00 00` |
+| 1000 | `1e 03 00 00 2c 03 00 00 00 00 00 00 00 00 00 00` |
+| 1016 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1032 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000006`
@@ -560,13 +741,30 @@ Value: `0x00000006`
 *   **Generation**: 0
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0xb888dc9, 0xb889ccc, 0xb88ab7e, 0xb88b6d8, 0xb88bb18
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `c9 8d 88 0b` | 0xb888dc9 | Hash of "luc" |
+| 1 | `cc 9c 88 0b` | 0xb889ccc | Hash of "per" |
+| 2 | `7e ab 88 0b` | 0xb88ab7e | Hash of "str" |
+| 3 | `d8 b6 88 0b` | 0xb88b6d8 | Hash of "vit" |
+| 4 | `18 bb 88 0b` | 0xb88bb18 | Hash of "wis" |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000005` (KeyCount: 5, Total Size: 0)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 1048, 1076, 756, 798, 812
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `18 04 00 00` | **1048** | "luc" |
+| 1 | `34 04 00 00` | **1076** | "per" |
+| 2 | `f4 02 00 00` | **756** | "str" |
+| 3 | `1e 03 00 00` | **798** | "vit" |
+| 4 | `2c 03 00 00` | **812** | "wis" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Data Entry 19: "luc" (Offset 1048)
 **Total Size**: 14 bytes
@@ -577,7 +775,7 @@ Pointers to Entries: 1048, 1076, 756, 798, 812
 | **1048** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **1049** | `6c756300` | **Key**: "luc" |
 | **1053** | `02` | **TypeTag**: I64 (2) |
-| **1054** | ... | **Value**: 9 (I64) |
+| **1054** | `09 00 00 00 00 00 00 00` | **Value**: 9 (I64) |
 
 ### Data Entry 20: "end" (Offset 1062)
 **Total Size**: 14 bytes
@@ -588,7 +786,7 @@ Pointers to Entries: 1048, 1076, 756, 798, 812
 | **1062** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **1063** | `656e6400` | **Key**: "end" |
 | **1067** | `02` | **TypeTag**: I64 (2) |
-| **1068** | ... | **Value**: 15 (I64) |
+| **1068** | `0f 00 00 00 00 00 00 00` | **Value**: 15 (I64) |
 
 ### Data Entry 21: "per" (Offset 1076)
 **Total Size**: 14 bytes
@@ -599,7 +797,7 @@ Pointers to Entries: 1048, 1076, 756, 798, 812
 | **1076** | `10` | **KeyTag**: Len 1. KeyLen 4 |
 | **1077** | `70657200` | **Key**: "per" |
 | **1081** | `02` | **TypeTag**: I64 (2) |
-| **1082** | ... | **Value**: 11 (I64) |
+| **1082** | `0b 00 00 00 00 00 00 00` | **Value**: 11 (I64) |
 
 ### Gap / Padding (Offsets 1090-1092)
 *   2 bytes (0x2) likely alignment padding.
@@ -617,7 +815,17 @@ Pointers to Entries: 1048, 1076, 756, 798, 812
 
 ### Node 9 (Offsets 1104-1200)
 
-**Header Excerpt**: `0703000000000000...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 1104 | `07 03 00 00 00 00 00 00 01 00 00 00 02 00 00 00` |
+| 1120 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1136 | `c3 00 00 00 b0 04 00 00 b9 04 00 00 c2 04 00 00` |
+| 1152 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1168 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1184 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000307`
@@ -625,13 +833,26 @@ Value: `0x00000307`
 *   **Generation**: 3
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0x1, 0x2
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `00 00 00 00` | 0x0 | Index 0 |
+| 1 | `01 00 00 00` | 0x1 | Index 1 |
+| 2 | `02 00 00 00` | 0x2 | Index 2 |
 
 #### Bytes 32-36: SizeKc
 Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 1200, 1209, 1218
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `b0 04 00 00` | **1200** | "Index 0" |
+| 1 | `b9 04 00 00` | **1209** | "Index 1" |
+| 2 | `c2 04 00 00` | **1218** | "Index 2" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Data Entry 23: "Index 0" (Offset 1200)
 **Total Size**: 9 bytes
@@ -640,7 +861,7 @@ Pointers to Entries: 1200, 1209, 1218
 | Offset | Bytes | Interpretation |
 | :--- | :--- | :--- |
 | **1200** | `02` | **TypeTag**: I64 (2) |
-| **1201** | ... | **Value**: 101 (I64) |
+| **1201** | `65 00 00 00 00 00 00 00` | **Value**: 101 (I64) |
 
 ### Data Entry 24: "Index 1" (Offset 1209)
 **Total Size**: 9 bytes
@@ -649,7 +870,7 @@ Pointers to Entries: 1200, 1209, 1218
 | Offset | Bytes | Interpretation |
 | :--- | :--- | :--- |
 | **1209** | `02` | **TypeTag**: I64 (2) |
-| **1210** | ... | **Value**: 205 (I64) |
+| **1210** | `cd 00 00 00 00 00 00 00` | **Value**: 205 (I64) |
 
 ### Data Entry 25: "Index 2" (Offset 1218)
 **Total Size**: 9 bytes
@@ -658,7 +879,7 @@ Pointers to Entries: 1200, 1209, 1218
 | Offset | Bytes | Interpretation |
 | :--- | :--- | :--- |
 | **1218** | `02` | **TypeTag**: I64 (2) |
-| **1219** | ... | **Value**: 303 (I64) |
+| **1219** | `2f 01 00 00 00 00 00 00` | **Value**: 303 (I64) |
 
 ### Gap / Padding (Offsets 1227-1229)
 *   2 bytes (0x2) likely alignment padding.
@@ -676,7 +897,17 @@ Pointers to Entries: 1200, 1209, 1218
 
 ### Node 10 (Offsets 1240-1336)
 
-**Header Excerpt**: `0702000000000000...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 1240 | `07 02 00 00 00 00 00 00 01 00 00 00 00 00 00 00` |
+| 1256 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1272 | `82 00 00 00 38 05 00 00 d0 05 00 00 00 00 00 00` |
+| 1288 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1304 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1320 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000207`
@@ -684,13 +915,24 @@ Value: `0x00000207`
 *   **Generation**: 2
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0x1
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `00 00 00 00` | 0x0 | Index 0 |
+| 1 | `01 00 00 00` | 0x1 | Index 1 |
 
 #### Bytes 32-36: SizeKc
 Value: `0x00000082` (KeyCount: 2, Total Size: 2)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 1336, 1488
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `38 05 00 00` | **1336** | "Index 0" |
+| 1 | `d0 05 00 00` | **1488** | "Index 1" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
 
 ### Data Entry 27: "Index 0" (Offset 1336)
 **Total Size**: 0 bytes
@@ -701,10 +943,86 @@ Pointers to Entries: 1336, 1488
 | **1336** | `06` | **TypeTag**: OBJECT (6) |
 | ... | ... | *Inline Node follows immediately...* |
 
-### Gap / Padding (Offsets 1336-1488)
-*   152 bytes (0x98) likely alignment padding.
+### Node 11 (Offsets 1336-1432)
 
-### Data Entry 28: "Index 1" (Offset 1488)
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 1336 | `06 03 00 00 bd 6a 88 0b 46 0c 9b 7c 07 bd 9e 7c` |
+| 1352 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1368 | `c3 00 00 00 c1 05 00 00 aa 05 00 00 98 05 00 00` |
+| 1384 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1400 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1416 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+
+#### Byte 0-4: GenType
+Value: `0x00000306`
+*   **Type**: OBJECT
+*   **Generation**: 3
+
+#### Bytes 4-32: Hashes
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `bd 6a 88 0b` | 0xb886abd | Hash of "dmg" |
+| 1 | `46 0c 9b 7c` | 0x7c9b0c46 | Hash of "name" |
+| 2 | `07 bd 9e 7c` | 0x7c9ebd07 | Hash of "type" |
+
+#### Bytes 32-36: SizeKc
+Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
+
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `c1 05 00 00` | **1473** | "dmg" |
+| 1 | `aa 05 00 00` | **1450** | "name" |
+| 2 | `98 05 00 00` | **1432** | "type" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
+
+### Data Entry 28: "type" (Offset 1432)
+**Total Size**: 18 bytes
+**Raw Data**: `14 74 79 70 65 00 05 07 00 00 00 77 65 61 70 6f 6e 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1432** | `14` | **KeyTag**: Len 1. KeyLen 5 |
+| **1433** | `7479706500` | **Key**: "type" |
+| **1438** | `05` | **TypeTag**: STRING (5) |
+| **1439** | `07000000` | **Length**: 7 |
+| **1443** | `77 65 61 70 6f 6e 00` | **Value**: "weapon" |
+
+### Data Entry 29: "name" (Offset 1450)
+**Total Size**: 23 bytes
+**Raw Data**: `14 6e 61 6d 65 00 05 0c 00 00 00 52 75 73 74 79 20 53 77 6f 72 64 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1450** | `14` | **KeyTag**: Len 1. KeyLen 5 |
+| **1451** | `6e616d6500` | **Key**: "name" |
+| **1456** | `05` | **TypeTag**: STRING (5) |
+| **1457** | `0c000000` | **Length**: 12 |
+| **1461** | `52 75 73 74 79 20 53 77 6f 72 64 00` | **Value**: "Rusty Sword" |
+
+### Data Entry 30: "dmg" (Offset 1473)
+**Total Size**: 14 bytes
+**Raw Data**: `10 64 6d 67 00 02 05 00 00 00 00 00 00 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1473** | `10` | **KeyTag**: Len 1. KeyLen 4 |
+| **1474** | `646d6700` | **Key**: "dmg" |
+| **1478** | `02` | **TypeTag**: I64 (2) |
+| **1479** | `05 00 00 00 00 00 00 00` | **Value**: 5 (I64) |
+
+### Gap / Padding (Offsets 1487-1488)
+*   1 bytes (0x1) likely alignment padding.
+
+### Data Entry 31: "Index 1" (Offset 1488)
 **Total Size**: 0 bytes
 **Raw Data**: ``
 
@@ -713,10 +1031,86 @@ Pointers to Entries: 1336, 1488
 | **1488** | `06` | **TypeTag**: OBJECT (6) |
 | ... | ... | *Inline Node follows immediately...* |
 
-### Gap / Padding (Offsets 1488-1644)
-*   156 bytes (0x9c) likely alignment padding.
+### Node 12 (Offsets 1488-1584)
 
-### Data Entry 29: "save_point" (Offset 1644)
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 1488 | `06 03 00 00 7f d1 97 7c 46 0c 9b 7c 07 bd 9e 7c` |
+| 1504 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1520 | `c3 00 00 00 5c 06 00 00 42 06 00 00 30 06 00 00` |
+| 1536 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1552 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1568 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+
+#### Byte 0-4: GenType
+Value: `0x00000306`
+*   **Type**: OBJECT
+*   **Generation**: 3
+
+#### Bytes 4-32: Hashes
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `7f d1 97 7c` | 0x7c97d17f | Hash of "heal" |
+| 1 | `46 0c 9b 7c` | 0x7c9b0c46 | Hash of "name" |
+| 2 | `07 bd 9e 7c` | 0x7c9ebd07 | Hash of "type" |
+
+#### Bytes 32-36: SizeKc
+Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
+
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `5c 06 00 00` | **1628** | "heal" |
+| 1 | `42 06 00 00` | **1602** | "name" |
+| 2 | `30 06 00 00` | **1584** | "type" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
+
+### Data Entry 32: "type" (Offset 1584)
+**Total Size**: 18 bytes
+**Raw Data**: `14 74 79 70 65 00 05 07 00 00 00 70 6f 74 69 6f 6e 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1584** | `14` | **KeyTag**: Len 1. KeyLen 5 |
+| **1585** | `7479706500` | **Key**: "type" |
+| **1590** | `05` | **TypeTag**: STRING (5) |
+| **1591** | `07000000` | **Length**: 7 |
+| **1595** | `70 6f 74 69 6f 6e 00` | **Value**: "potion" |
+
+### Data Entry 33: "name" (Offset 1602)
+**Total Size**: 26 bytes
+**Raw Data**: `14 6e 61 6d 65 00 05 0f 00 00 00 48 65 61 6c 69 6e 67 20 50 6f 74 69 6f 6e 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1602** | `14` | **KeyTag**: Len 1. KeyLen 5 |
+| **1603** | `6e616d6500` | **Key**: "name" |
+| **1608** | `05` | **TypeTag**: STRING (5) |
+| **1609** | `0f000000` | **Length**: 15 |
+| **1613** | `48 65 61 6c 69 6e 67 20 50 6f 74 69 6f 6e 00` | **Value**: "Healing Potion" |
+
+### Data Entry 34: "heal" (Offset 1628)
+**Total Size**: 15 bytes
+**Raw Data**: `14 68 65 61 6c 00 02 32 00 00 00 00 00 00 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1628** | `14` | **KeyTag**: Len 1. KeyLen 5 |
+| **1629** | `6865616c00` | **Key**: "heal" |
+| **1634** | `02` | **TypeTag**: I64 (2) |
+| **1635** | `32 00 00 00 00 00 00 00` | **Value**: 50 (I64) |
+
+### Gap / Padding (Offsets 1643-1644)
+*   1 bytes (0x1) likely alignment padding.
+
+### Data Entry 35: "save_point" (Offset 1644)
 **Total Size**: 12 bytes
 **Raw Data**: `2c 73 61 76 65 5f 70 6f 69 6e 74 00`
 
@@ -727,9 +1121,19 @@ Pointers to Entries: 1336, 1488
 | **1656** | `07` | **TypeTag**: ARRAY (7) |
 | ... | ... | *Inline Node follows immediately...* |
 
-### Node 11 (Offsets 1656-1752)
+### Node 13 (Offsets 1656-1752)
 
-**Header Excerpt**: `0703000000000000...`
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 1656 | `07 03 00 00 00 00 00 00 01 00 00 00 02 00 00 00` |
+| 1672 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1688 | `c3 00 00 00 d8 06 00 00 e9 06 00 00 f4 06 00 00` |
+| 1704 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1720 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1736 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
 
 #### Byte 0-4: GenType
 Value: `0x00000307`
@@ -737,36 +1141,50 @@ Value: `0x00000307`
 *   **Generation**: 3
 
 #### Bytes 4-32: Hashes
-Active Hashes: 0x1, 0x2
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `00 00 00 00` | 0x0 | Index 0 |
+| 1 | `01 00 00 00` | 0x1 | Index 1 |
+| 2 | `02 00 00 00` | 0x2 | Index 2 |
 
 #### Bytes 32-36: SizeKc
 Value: `0x000000c3` (KeyCount: 3, Total Size: 3)
 
-#### Bytes 36-64: KvOffsets
-Pointers to Entries: 1752, 1769, 1780
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `d8 06 00 00` | **1752** | "Index 0" |
+| 1 | `e9 06 00 00` | **1769** | "Index 1" |
+| 2 | `f4 06 00 00` | **1780** | "Index 2" |
 
-### Data Entry 30: "Index 0" (Offset 1752)
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
+
+### Data Entry 36: "Index 0" (Offset 1752)
 **Total Size**: 17 bytes
 **Raw Data**: `05 0c 00 00 00 44 61 72 6b 20 46 6f 72 65 73 74 00`
 
 | Offset | Bytes | Interpretation |
 | :--- | :--- | :--- |
 | **1752** | `05` | **TypeTag**: STRING (5) |
-| **1757** | ... | **Value**: "Dark Forest" |
+| **1753** | `0c000000` | **Length**: 12 |
+| **1757** | `44 61 72 6b 20 46 6f 72 65 73 74 00` | **Value**: "Dark Forest" |
 
-### Data Entry 31: "Index 1" (Offset 1769)
+### Data Entry 37: "Index 1" (Offset 1769)
 **Total Size**: 9 bytes
 **Raw Data**: `02 20 79 68 67 00 00 00 00`
 
 | Offset | Bytes | Interpretation |
 | :--- | :--- | :--- |
 | **1769** | `02` | **TypeTag**: I64 (2) |
-| **1770** | ... | **Value**: 1734900000 (I64) |
+| **1770** | `20 79 68 67 00 00 00 00` | **Value**: 1734900000 (I64) |
 
 ### Gap / Padding (Offsets 1778-1780)
 *   2 bytes (0x2) likely alignment padding.
 
-### Data Entry 32: "Index 2" (Offset 1780)
+### Data Entry 38: "Index 2" (Offset 1780)
 **Total Size**: 0 bytes
 **Raw Data**: ``
 
@@ -775,8 +1193,70 @@ Pointers to Entries: 1752, 1769, 1780
 | **1780** | `06` | **TypeTag**: OBJECT (6) |
 | ... | ... | *Inline Node follows immediately...* |
 
-```mermaid
+### Node 14 (Offsets 1780-1876)
 
+**Total Size**: 96 bytes
+
+**Raw Data**:
+| Offset | Bytes |
+| :--- | :--- |
+| 1780 | `06 02 00 00 1d b6 02 00 1e b6 02 00 00 00 00 00` |
+| 1796 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1812 | `82 00 00 00 54 07 00 00 60 07 00 00 00 00 00 00` |
+| 1828 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1844 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| 1860 | `00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+
+#### Byte 0-4: GenType
+Value: `0x00000206`
+*   **Type**: OBJECT
+*   **Generation**: 2
+
+#### Bytes 4-32: Hashes
+| Index | Bytes | Value | Interpretation |
+| :--- | :--- | :--- | :--- |
+| 0 | `1d b6 02 00` | 0x2b61d | Hash of "x" |
+| 1 | `1e b6 02 00` | 0x2b61e | Hash of "y" |
+
+#### Bytes 32-36: SizeKc
+Value: `0x00000082` (KeyCount: 2, Total Size: 2)
+
+#### Bytes 36-64: KvOffsets (Pointers to Entries)
+| Index | Bytes | Target Offset | Target Key |
+| :--- | :--- | :--- | :--- |
+| 0 | `54 07 00 00` | **1876** | "x" |
+| 1 | `60 07 00 00` | **1888** | "y" |
+
+#### Bytes 64-96: ChildOffsets (Pointers to Child Nodes)
+| Index | Bytes | Target Offset | Description |
+| :--- | :--- | :--- | :--- |
+| - | - | - | **Leaf Node** (All Child Offsets are 0) |
+
+### Data Entry 39: "x" (Offset 1876)
+**Total Size**: 12 bytes
+**Raw Data**: `08 78 00 02 78 00 00 00 00 00 00 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1876** | `08` | **KeyTag**: Len 1. KeyLen 2 |
+| **1877** | `7800` | **Key**: "x" |
+| **1879** | `02` | **TypeTag**: I64 (2) |
+| **1880** | `78 00 00 00 00 00 00 00` | **Value**: 120 (I64) |
+
+### Data Entry 40: "y" (Offset 1888)
+**Total Size**: 12 bytes
+**Raw Data**: `08 79 00 02 37 00 00 00 00 00 00 00`
+
+| Offset | Bytes | Interpretation |
+| :--- | :--- | :--- |
+| **1888** | `08` | **KeyTag**: Len 1. KeyLen 2 |
+| **1889** | `7900` | **Key**: "y" |
+| **1891** | `02` | **TypeTag**: I64 (2) |
+| **1892** | `37 00 00 00 00 00 00 00` | **Value**: 55 (I64) |
+
+## 5. B-Tree Visualization
+
+```mermaid
 graph TD
 classDef node fill:#f9f,stroke:#333;
 classDef entry fill:#e1f5fe,stroke:#333;
@@ -812,6 +1292,9 @@ classDef entry fill:#e1f5fe,stroke:#333;
     N1656 -- "Hash[0]=0" --> E1752
     N1656 -- "Hash[1]=1" --> E1769
     N1656 -- "Hash[2]=2" --> E1780
+    N1780["Node @ 1780<br>Type: OBJECT<br>Keys: 2"]:::node
+    N1780 -- "Hash[0]=2b61d" --> E1876
+    N1780 -- "Hash[1]=2b61e" --> E1888
     N320["Node @ 320<br>Type: OBJECT<br>Keys: 6"]:::node
     N320 -- "Hash[0]=7c9b0c46" --> E96
     N320 -- "Hash[1]=815c9ecb" --> E206
@@ -822,53 +1305,68 @@ classDef entry fill:#e1f5fe,stroke:#333;
     N1240["Node @ 1240<br>Type: ARRAY<br>Keys: 2"]:::node
     N1240 -- "Hash[0]=0" --> E1336
     N1240 -- "Hash[1]=1" --> E1488
+    N1336["Node @ 1336<br>Type: OBJECT<br>Keys: 3"]:::node
+    N1336 -- "Hash[0]=b886abd" --> E1473
+    N1336 -- "Hash[1]=7c9b0c46" --> E1450
+    N1336 -- "Hash[2]=7c9ebd07" --> E1432
+    N1488["Node @ 1488<br>Type: OBJECT<br>Keys: 3"]:::node
+    N1488 -- "Hash[0]=7c97d17f" --> E1628
+    N1488 -- "Hash[1]=7c9b0c46" --> E1602
+    N1488 -- "Hash[2]=7c9ebd07" --> E1584
     N1104["Node @ 1104<br>Type: ARRAY<br>Keys: 3"]:::node
     N1104 -- "Hash[0]=0" --> E1200
     N1104 -- "Hash[1]=1" --> E1209
     N1104 -- "Hash[2]=2" --> E1218
     N556["Node @ 556<br>Type: OBJECT<br>Keys: 0"]:::node
-    E175["Key: guild<br>Type: 0"]:::entry
-    E120["Key: level<br>Type: 2"]:::entry
+    E175["Key: guild<br>Type: UNK"]:::entry
+    E120["Key: level<br>Type: I64"]:::entry
     E653["Key: stats<br>Inline Node"]:::entry
     E653 -.-> N660
-    E840["Key: agi<br>Type: 2"]:::entry
-    E826["Key: cha<br>Type: 2"]:::entry
-    E770["Key: dex<br>Type: 2"]:::entry
-    E1062["Key: end<br>Type: 2"]:::entry
-    E1048["Key: luc<br>Type: 2"]:::entry
-    E1076["Key: per<br>Type: 2"]:::entry
-    E756["Key: str<br>Type: 2"]:::entry
-    E798["Key: vit<br>Type: 2"]:::entry
-    E812["Key: wis<br>Type: 2"]:::entry
-    E784["Key: int<br>Type: 2"]:::entry
-    E416["Key: custom_tag<br>Type: 4"]:::entry
-    E136["Key: hit_chance<br>Type: 3"]:::entry
+    E840["Key: agi<br>Type: I64"]:::entry
+    E826["Key: cha<br>Type: I64"]:::entry
+    E770["Key: dex<br>Type: I64"]:::entry
+    E1062["Key: end<br>Type: I64"]:::entry
+    E1048["Key: luc<br>Type: I64"]:::entry
+    E1076["Key: per<br>Type: I64"]:::entry
+    E756["Key: str<br>Type: I64"]:::entry
+    E798["Key: vit<br>Type: I64"]:::entry
+    E812["Key: wis<br>Type: I64"]:::entry
+    E784["Key: int<br>Type: I64"]:::entry
+    E416["Key: custom_tag<br>Type: BYTES"]:::entry
+    E136["Key: hit_chance<br>Type: F64"]:::entry
     E434["Key: active_buffs<br>Inline Node"]:::entry
     E434 -.-> N448
     E1644["Key: save_point<br>Inline Node"]:::entry
     E1644 -.-> N1656
-    E1752["Key: Index 0<br>Type: 5"]:::entry
-    E1769["Key: Index 1<br>Type: 2"]:::entry
+    E1752["Key: Index 0<br>Type: STRING"]:::entry
+    E1769["Key: Index 1<br>Type: I64"]:::entry
     E1780["Key: Index 2<br>Inline Node"]:::entry
     E1780 -.-> N1780
-    E96["Key: name<br>Type: 5"]:::entry
-    E206["Key: nickname<br>Type: 5"]:::entry
-    E183["Key: portrait_raw<br>Type: 4"]:::entry
+    E1876["Key: x<br>Type: I64"]:::entry
+    E1888["Key: y<br>Type: I64"]:::entry
+    E96["Key: name<br>Type: STRING"]:::entry
+    E206["Key: nickname<br>Type: STRING"]:::entry
+    E183["Key: portrait_raw<br>Type: BYTES"]:::entry
     E1229["Key: inventory<br>Inline Node"]:::entry
     E1229 -.-> N1240
     E1336["Key: Index 0<br>Inline Node"]:::entry
     E1336 -.-> N1336
+    E1473["Key: dmg<br>Type: I64"]:::entry
+    E1450["Key: name<br>Type: STRING"]:::entry
+    E1432["Key: type<br>Type: STRING"]:::entry
     E1488["Key: Index 1<br>Inline Node"]:::entry
     E1488 -.-> N1488
+    E1628["Key: heal<br>Type: I64"]:::entry
+    E1602["Key: name<br>Type: STRING"]:::entry
+    E1584["Key: type<br>Type: STRING"]:::entry
     E1092["Key: spell_book<br>Inline Node"]:::entry
     E1092 -.-> N1104
-    E1200["Key: Index 0<br>Type: 2"]:::entry
-    E1209["Key: Index 1<br>Type: 2"]:::entry
-    E1218["Key: Index 2<br>Type: 2"]:::entry
+    E1200["Key: Index 0<br>Type: I64"]:::entry
+    E1209["Key: Index 1<br>Type: I64"]:::entry
+    E1218["Key: Index 2<br>Type: I64"]:::entry
     E545["Key: pet_stats<br>Inline Node"]:::entry
     E545 -.-> N556
-    E157["Key: is_pvp_enabled<br>Type: 1"]:::entry
-
+    E157["Key: is_pvp_enabled<br>Type: BOOL"]:::entry
 ```
 
 ## 6. Implementation Notes & FAQ
@@ -888,4 +1386,3 @@ In early debugging, pointers might look wrong. Remember:
 *   **KvOffsets** point to the *Key Tag* byte.
 *   **ChildOffsets** point to the *GenType* byte of a child node.
 *   **Inline Nodes** effectively have their "pointer" as the current stream position.
-
