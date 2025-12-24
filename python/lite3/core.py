@@ -67,25 +67,30 @@ class Lite3Object(Lite3Ref):
         return Lite3Object(self._buffer, 0)
 
     def exists(self, key: str) -> bool:
-        return False
+        """Check if key exists."""
+        # Note: _get_auto returns None if not found OR if value is Null
+        # For stricter check, we might need _has_key logic. 
+        # But for now assuming None check is sufficient or typical Pythonic behavior.
+        return self._buffer._get_auto(self._offset, key) is not None
 
     def get(self, key: str, default: Any = None) -> Any:
-        # if self.exists(key): return self[key]
-        return default
+        val = self[key]
+        return val if val is not None else default
 
     def keys(self) -> Iterator[str]:
-        # return self._buffer._iter_keys(self._offset)
-        return iter([])
+        for k, _, _ in self._buffer._iter_node(self._offset):
+             if k is not None: yield k
 
     def values(self) -> Iterator[Any]:
-        # return self._buffer._iter_values(self._offset)
-        return iter([])
+        for _, ofs, t in self._buffer._iter_node(self._offset):
+             yield self._buffer._read_recursive(ofs, t)
 
     def items(self) -> Iterator[Tuple[str, Any]]:
-        # return self._buffer._iter_items(self._offset)
-        return iter([])
+        for k, ofs, t in self._buffer._iter_node(self._offset):
+             if k is not None:
+                 yield k, self._buffer._read_recursive(ofs, t)
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self):
         return self.keys()
     
     def __contains__(self, key: str) -> bool:
@@ -116,19 +121,19 @@ class Lite3Array(Lite3Ref):
 
     def __setitem__(self, index: int, value: Any) -> None:
         """Set value by index."""
-        # self._buffer._arr_set_auto(self._offset, index, value)
-        pass
+        self._buffer._arr_set_auto(self._offset, index, value)
 
     def __getitem__(self, index: int) -> Any:
         """Get value by index."""
-        return None
+        return self._buffer._arr_get_elem(self._offset, index)
 
     def __iter__(self):
         """Iterate over elements."""
-        return iter([])
+        for i in range(len(self)):
+            yield self[i]
 
     def __len__(self) -> int:
-        return 0
+        return self._buffer._arr_len(self._offset)
 
     def append(self, value: Any) -> None:
         """
@@ -174,6 +179,99 @@ class Lite3Buffer:
         """Initialize the root as an Object."""
         self._init_node(Lite3Type.OBJECT)
         return Lite3Object(self, 0)
+
+    def get_root(self) -> 'Lite3Object':
+        """Get the root object reference."""
+        return Lite3Object(self, 0)
+        
+    def _try_update_in_place(self, entry_ofs: int, val_payload: bytes) -> bool:
+        tag_byte = self._buffer[entry_ofs]
+        tag_size = (tag_byte & 0x03) + 1
+        
+        if tag_size == 1: tag_val = self._buffer[entry_ofs]
+        elif tag_size == 2: tag_val = struct.unpack_from('<H', self._buffer, entry_ofs)[0]
+        else: tag_val = struct.unpack_from('<I', self._buffer, entry_ofs)[0]
+        
+        key_len = tag_val >> 2
+        value_start = entry_ofs + tag_size + key_len
+        
+        old_type = self._buffer[value_start]
+        new_type = val_payload[0]
+        
+        if old_type != new_type:
+             return False
+        
+        if new_type in (Lite3Type.BOOL, Lite3Type.I64, Lite3Type.F64, Lite3Type.NULL):
+            self._buffer[value_start : value_start + len(val_payload)] = val_payload
+            return True
+            
+        return False
+
+    def _set_impl(self, root_ofs: int, key: Optional[str], val_payload: bytes, forced_hash: Optional[int] = None) -> int:
+        # ... (Previous code)
+        if key is not None:
+            key_hash = self._calc_hash(key)
+        else:
+            if forced_hash is not None:
+                key_hash = forced_hash
+            else:
+                key_hash = 0
+        
+        # Increment Generation Count (C Compatibility)
+        gen_type = struct.unpack_from('<I', self._buffer, root_ofs + OFS_GEN_TYPE)[0]
+        gen = (gen_type >> GEN_SHIFT) + 1
+        new_gen_type = (gen_type & NODE_TYPE_MASK) | (gen << GEN_SHIFT)
+        struct.pack_into('<I', self._buffer, root_ofs + OFS_GEN_TYPE, new_gen_type)
+        
+        node_ofs = root_ofs
+        parent_ofs = None
+        child_idx_in_parent = -1
+
+        hashes = []
+        kv_ofs = []
+        child_ofs = []
+        size_kc = 0
+        key_count = 0
+        
+        while True:
+            # Read Node Data
+            hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
+            size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
+            key_count = size_kc & NODE_KC_MASK
+            kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
+            child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
+            
+            # Check Full -> Split
+            if key_count >= MAX_KEYS:
+                 done_ofs, next_node, next_parent, next_idx = self._split_node(
+                     node_ofs, parent_ofs, child_idx_in_parent, root_ofs, 
+                     key, val_payload, key_hash
+                 )
+                 if done_ofs is not None:
+                     return done_ofs
+                 
+                 node_ofs = next_node
+                 parent_ofs = next_parent
+                 child_idx_in_parent = next_idx
+                 continue
+
+            # Check Keys in Node
+            idx = 0
+            while idx < key_count:
+                 h = hashes[idx]
+                 if h == key_hash:
+                     # Match Found
+                     # Optimize: Update In Place
+                     current_entry_ofs = kv_ofs[idx]
+                     if self._try_update_in_place(current_entry_ofs, val_payload):
+                         return current_entry_ofs
+                     
+                     entry_ofs = self._append_entry(key, val_payload)
+                     struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + idx*4, entry_ofs)
+                     return entry_ofs
+                 if h > key_hash:
+                     break
+                 idx += 1
 
     def init_arr(self) -> Lite3Array:
         """Initialize the root as an Array."""
@@ -262,9 +360,17 @@ class Lite3Buffer:
             h &= 0xFFFFFFFF # Keep 32-bit
         return h
 
-    def _set_impl(self, root_ofs: int, key: str, val_payload: bytes) -> int:
+    def _set_impl(self, root_ofs: int, key: Optional[str], val_payload: bytes, forced_hash: Optional[int] = None) -> int:
         # 1. Hashing
-        key_hash = self._calc_hash(key)
+        if key is not None:
+            key_hash = self._calc_hash(key)
+        else:
+            if forced_hash is not None:
+                key_hash = forced_hash
+            else:
+                # Should not happen for Arrays
+                key_hash = 0
+        
         
         # Increment Generation Count (C Compatibility)
         gen_type = struct.unpack_from('<I', self._buffer, root_ofs + OFS_GEN_TYPE)[0]
@@ -310,6 +416,11 @@ class Lite3Buffer:
                  h = hashes[idx]
                  if h == key_hash:
                      # Match Found
+                     # Optimize: Update In Place
+                     current_entry_ofs = kv_ofs[idx]
+                     if self._try_update_in_place(current_entry_ofs, val_payload):
+                         return current_entry_ofs
+                     
                      entry_ofs = self._append_entry(key, val_payload)
                      struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + idx*4, entry_ofs)
                      return entry_ofs
@@ -345,21 +456,33 @@ class Lite3Buffer:
             
             return entry_ofs
 
+    def _append_buffer_data(self, data: bytes) -> int:
+        offset = self._buflen
+        length = len(data)
+        needed = offset + length
+        
+        if len(self._buffer) < needed:
+            self._buffer.extend(b'\x00' * (needed - len(self._buffer)))
+            
+        self._buffer[offset : offset + length] = data
+        self._buflen += length
+        return offset
+
     def _split_node(self, node_ofs: int, parent_ofs: Optional[int], child_idx: int, root_ofs: int, 
-                    key: str, val_payload: bytes, key_hash: int) -> Tuple[Optional[int], int, Optional[int], int]:
+                    key: Optional[str], val_payload: bytes, key_hash: int) -> Tuple[Optional[int], int, Optional[int], int]:
         
         # 1. Align Buffer
         current_len = self._buflen
         aligned_len = (current_len + 3) & ~3
-        if aligned_len > current_len:
-             self._buffer.extend(b'\x00' * (aligned_len - current_len))
-             self._buflen = aligned_len
+        pad_len = aligned_len - current_len
+        if pad_len > 0:
+             self._append_buffer_data(b'\x00' * pad_len)
              
         # 2. Handle Root Split
         if parent_ofs is None and node_ofs == root_ofs:
-             new_child_ofs = self._buflen
-             self._buffer.extend(self._buffer[root_ofs : root_ofs + LITE3_NODE_SIZE])
-             self._buflen += LITE3_NODE_SIZE
+             # Copy Root to New Child
+             data = self._buffer[root_ofs : root_ofs + LITE3_NODE_SIZE]
+             new_child_ofs = self._append_buffer_data(data)
              
              # Re-init Root
              self._buffer[root_ofs + 8 : root_ofs + LITE3_NODE_SIZE] = b'\x00' * (LITE3_NODE_SIZE - 8)
@@ -370,12 +493,10 @@ class Lite3Buffer:
              parent_ofs = root_ofs
              node_ofs = new_child_ofs
              child_idx = 0
-        
+             
         # 3. Standard Split
         # Alloc Sibling
-        sibling_ofs = self._buflen
-        self._buffer.extend(b'\x00' * LITE3_NODE_SIZE)
-        self._buflen += LITE3_NODE_SIZE
+        sibling_ofs = self._append_buffer_data(b'\x00' * LITE3_NODE_SIZE)
         
         median_idx = 3
         
@@ -440,7 +561,7 @@ class Lite3Buffer:
         else:
              return None, node_ofs, parent_ofs, child_idx
 
-    def _append_entry(self, key: str, val_payload: bytes) -> int:
+    def _append_entry(self, key: Optional[str], val_payload: bytes) -> int:
         
         # Check if payload requires alignment (Object/Array nodes)
         align_payload = False
@@ -450,41 +571,65 @@ class Lite3Buffer:
                 align_payload = True
         
         # 1. Key Tag & Bytes
-        base_key_bytes = key.encode('utf-8') + b'\x00'
-        
-        # Iterative padding calculation (because tag size might change)
-        padding = 0
-        while True:
-            key_bytes = base_key_bytes + (b'\x00' * padding)
-            key_len = len(key_bytes)
+        if key is not None:
+            base_key_bytes = key.encode('utf-8') + b'\x00'
             
-            # Calc Tag Size (1..4)
-            if key_len < 64: tag_size = 1
-            elif key_len < 16384: tag_size = 2
-            else: tag_size = 4
-            
-            if not align_payload:
-                break
+            # Iterative padding calculation
+            padding = 0
+            while True:
+                key_bytes = base_key_bytes + (b'\x00' * padding)
+                key_len = len(key_bytes)
                 
-            offset = self._buflen
-            payload_start = offset + tag_size + key_len
-            needed_padding = (4 - (payload_start % 4)) % 4
+                # Calc Tag Size (1..4)
+                if key_len < 64: tag_size = 1
+                elif key_len < 16384: tag_size = 2
+                else: tag_size = 4
+                
+                if not align_payload:
+                    break
+                    
+                offset = self._buflen
+                payload_start = offset + tag_size + key_len
+                needed_padding = (4 - (payload_start % 4)) % 4
+                
+                if needed_padding == 0:
+                    break
+                
+                padding += needed_padding
             
-            if needed_padding == 0:
-                break
+            tag_val = (key_len << 2) | (tag_size - 1)
+            tag_bytes = tag_val.to_bytes(tag_size, 'little')
             
-            padding += needed_padding
+            data = tag_bytes + key_bytes + val_payload
             
-        tag_val = (key_len << 2) | (tag_size - 1)
-        tag_bytes = tag_val.to_bytes(tag_size, 'little')
+        else:
+            # Array Entry (No Key)
+            # Alignment for Arrays? C uses padding holes (see discussion).
+            # But my `_append_entry` assumes it can pad KEY.
+            # If NO KEY, I CANNOT pad Key.
+            # I must pad buffer before data.
+            
+            # The offset we return should be the start of the val_payload.
+            # So, if we pad, the returned offset will be after the padding.
+
+            current_buflen = self._buflen
+            
+            if align_payload:
+                # Calculate padding needed to align the start of val_payload
+                needed_padding = (4 - (current_buflen % 4)) % 4
+                if needed_padding > 0:
+                     self._append_buffer_data(b'\x00' * needed_padding)
+            
+            # The data to write is just the val_payload
+            data = val_payload
+
         
-        data = tag_bytes + key_bytes + val_payload
         needed = len(data)
         
         # Ensure capacity
         offset = self._buflen
         if offset + needed > len(self._buffer):
-            self._buffer.extend(b'\x00' * max(32, needed)) # Smart resize later
+            self._buffer.extend(b'\x00' * max(32, needed)) 
             
         # Write
         self._buffer[offset:offset+needed] = data
@@ -564,21 +709,73 @@ class Lite3Buffer:
                 # If hashes are sorted, we might scan forward?
                 pass
             
+    def _arr_len(self, ofs: int) -> int:
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        return size_kc >> NODE_SIZE_SHIFT
+
+    def _arr_get_elem(self, node_ofs: int, index: int) -> Any:
+        # Search using index as hash
+        key_hash = index
+        
+        hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
+        size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
+        key_count = size_kc & NODE_KC_MASK
+        kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
+        child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
+        
+        idx = 0
+        while idx < key_count:
+            h = hashes[idx]
+            if h == key_hash:
+                # Found
+                k_ofs = kv_ofs[idx]
+                # Array Entry: ValType is at k_ofs (no key)
+                val_type = self._buffer[k_ofs]
+                
+                if val_type == Lite3Type.OBJECT or val_type == Lite3Type.ARRAY:
+                     # For Object/Array, k_ofs points to Start of Node structure?
+                     # My `_append_entry` returns `offset` pointing to Payload.
+                     # Payload starts with TypeTag?
+                     # `val_payload[0]`.
+                     # If Object, Payload IS the Object Node.
+                     # Object Node starts with GenType.
+                     # GenType byte 0 is TypeTag.
+                     # So `self._buffer[k_ofs]` is TypeTag.
+                     val_ofs = k_ofs
+                else:
+                     val_ofs = k_ofs + 1
+                
+                return self._read_recursive(val_ofs, val_type)
+            
             if h > key_hash:
-                # Check child[idx]
                 c_ofs = child_ofs[idx]
                 if c_ofs != 0:
-                    return self._get_auto(c_ofs, key) # Recurse
-                return None # Not found
-                
+                    return self._arr_get_elem(c_ofs, index)
+                return None
             idx += 1
             
-        # Check last child (rightmost)
         c_ofs = child_ofs[idx]
         if c_ofs != 0:
-             return self._get_auto(c_ofs, key)
-             
+             return self._arr_get_elem(c_ofs, index)
         return None
+
+    def _arr_set_auto(self, ofs: int, index: int, val: Any) -> None:
+        if isinstance(val, int):
+            self._arr_set_i64(ofs, index, val)
+        elif isinstance(val, str):
+            self._arr_set_str(ofs, index, val)
+        else:
+             raise TypeError(f"Unsupported type for setitem: {type(val)}")
+             
+    def _arr_set_i64(self, ofs: int, index: int, val: int) -> None:
+        payload = struct.pack('<Bq', Lite3Type.I64, val)
+        self._set_impl(ofs, None, payload, forced_hash=index)
+
+    def _arr_set_str(self, ofs: int, index: int, val: str) -> None:
+        encoded = val.encode('utf-8')
+        length = len(encoded)
+        payload = struct.pack('<BI', Lite3Type.STRING, length) + encoded + b'\x00'
+        self._set_impl(ofs, None, payload, forced_hash=index)
 
     def _read_entry_header(self, k_ofs: int, node_type: int) -> Tuple[Optional[str], int, int]:
         # Helper extracted from _iter_node logic
@@ -607,18 +804,33 @@ class Lite3Buffer:
              
         return key_str, pass_ofs, val_type
 
-    def _arr_append_i64(self, ofs: int, val: int) -> None: ...
-    def _arr_append_str(self, ofs: int, val: str) -> None: ...
+    def _arr_append_i64(self, ofs: int, val: int) -> None:
+        payload = struct.pack('<Bq', Lite3Type.I64, val)
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        self._set_impl(ofs, None, payload, forced_hash=size)
+
+    def _arr_append_str(self, ofs: int, val: str) -> None:
+        encoded = val.encode('utf-8')
+        length = len(encoded)
+        payload = struct.pack('<BI', Lite3Type.STRING, length) + encoded + b'\x00'
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        self._set_impl(ofs, None, payload, forced_hash=size)
     
     def _arr_append_obj(self, ofs: int) -> int:
         """Returns new nested object offset"""
-        ...
-        return 0
+        node_bytes = self._create_node_bytes(Lite3Type.OBJECT)
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        return self._set_impl(ofs, None, node_bytes, forced_hash=size)
     
     def _arr_append_arr(self, ofs: int) -> int:
         """Returns new nested array offset"""
-        ...
-        return 0
+        node_bytes = self._create_node_bytes(Lite3Type.ARRAY)
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        return self._set_impl(ofs, None, node_bytes, forced_hash=size)
 
     def hex_dump(self) -> str:
         return self.memory.hex()
@@ -728,6 +940,8 @@ class Lite3Buffer:
              # Visit Key[i] (if i < key_count)
              if i < key_count:
                  k_ofs = kv_ofs[i]
+                 if k_ofs == 0:
+                     continue
                  
                  # Decode Entry at k_ofs
                  # Entry: [Tag] [Key] [ValTag] [ValPayload]

@@ -84,5 +84,8 @@ def main():
         print(data[i:i+2], end="")
     print()
 
+    print("\n--- JSON Validation ---")
+    print(ctx.to_json_string(indent=4))
+
 if __name__ == "__main__":
     main()

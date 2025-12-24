@@ -47,4 +47,4 @@ NODE_KC_MASK = 0x3F # 6 bits
 NODE_SIZE_SHIFT = 6
 
 # Constants
-DEFAULT_NODE_N = 3
+DEFAULT_NODE_N = 0

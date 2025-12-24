@@ -28,7 +28,8 @@ def main():
     # Transmit: Copy buffer to rx (simulating network/copy)
     # The receiver initializes a new buffer with the received data
     rx_ctx = Lite3Buffer(data=ctx.memory)
-    rx = rx_ctx.init_obj() # Root is at 0
+    # rx = rx_ctx.init_obj() # Wrong: Wraps existing data, don't re-init!
+    rx = rx_ctx.get_root()
     
     # Mutate rx
     print("\nVerifying fastest lap")
