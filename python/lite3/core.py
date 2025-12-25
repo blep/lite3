@@ -362,99 +362,123 @@ class Lite3Buffer:
 
     def _set_impl(self, root_ofs: int, key: Optional[str], val_payload: bytes, forced_hash: Optional[int] = None) -> int:
         # 1. Hashing
+        base_hash = 0
         if key is not None:
-            key_hash = self._calc_hash(key)
-        else:
-            if forced_hash is not None:
-                key_hash = forced_hash
-            else:
-                # Should not happen for Arrays
-                key_hash = 0
-        
-        
+            base_hash = self._calc_hash(key)
+        elif forced_hash is not None:
+            base_hash = forced_hash
+            
         # Increment Generation Count (C Compatibility)
         gen_type = struct.unpack_from('<I', self._buffer, root_ofs + OFS_GEN_TYPE)[0]
         gen = (gen_type >> GEN_SHIFT) + 1
         new_gen_type = (gen_type & NODE_TYPE_MASK) | (gen << GEN_SHIFT)
         struct.pack_into('<I', self._buffer, root_ofs + OFS_GEN_TYPE, new_gen_type)
         
-        node_ofs = root_ofs
-        parent_ofs = None
-        child_idx_in_parent = -1
-
-        hashes = []
-        kv_ofs = []
-        child_ofs = []
-        size_kc = 0
-        key_count = 0
+        probe_max = 128 if key is not None else 1
         
-        while True:
-            # Read Node Data
-            hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
-            size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
-            key_count = size_kc & NODE_KC_MASK
-            kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
-            child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
+        for attempt in range(probe_max):
+            key_hash = (base_hash + attempt * attempt) & 0xFFFFFFFF
             
-            # Check Full -> Split
-            if key_count >= MAX_KEYS:
-                 done_ofs, next_node, next_parent, next_idx = self._split_node(
-                     node_ofs, parent_ofs, child_idx_in_parent, root_ofs, 
-                     key, val_payload, key_hash
-                 )
-                 if done_ofs is not None:
-                     return done_ofs
-                 
-                 node_ofs = next_node
-                 parent_ofs = next_parent
-                 child_idx_in_parent = next_idx
-                 continue
+            node_ofs = root_ofs
+            parent_ofs = None
+            child_idx_in_parent = -1
 
-            # Check Keys in Node
-            idx = 0
-            while idx < key_count:
-                 h = hashes[idx]
-                 if h == key_hash:
-                     # Match Found
-                     # Optimize: Update In Place
-                     current_entry_ofs = kv_ofs[idx]
-                     if self._try_update_in_place(current_entry_ofs, val_payload):
-                         return current_entry_ofs
+            hashes = []
+            kv_ofs = []
+            child_ofs = []
+            size_kc = 0
+            key_count = 0
+            
+            # Label for breaking out of inner loop to continue outer loop
+            next_attempt = False
+            
+            while True:
+                # Read Node Data
+                hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
+                size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
+                key_count = size_kc & NODE_KC_MASK
+                kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
+                child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
+                
+                # Check Full -> Split
+                if key_count >= MAX_KEYS:
+                     done_ofs, next_node, next_parent, next_idx = self._split_node(
+                         node_ofs, parent_ofs, child_idx_in_parent, root_ofs, 
+                         key, val_payload, key_hash
+                     )
+                     if done_ofs is not None:
+                         return done_ofs
                      
-                     entry_ofs = self._append_entry(key, val_payload)
-                     struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + idx*4, entry_ofs)
-                     return entry_ofs
-                 if h > key_hash:
-                     break
-                 idx += 1
+                     node_ofs = next_node
+                     parent_ofs = next_parent
+                     child_idx_in_parent = next_idx
+                     continue
+
+                # Check Keys in Node
+                idx = 0
+                match_found = False
+                while idx < key_count:
+                     h = hashes[idx]
+                     if h == key_hash:
+                         # Potential Match - Verify Key!
+                         current_entry_ofs = kv_ofs[idx]
+                         
+                         if key is not None:
+                             # Verify String Key
+                             stored_key, _, _ = self._read_entry_header(current_entry_ofs, Lite3Type.OBJECT) # Assuming Object context if Key exists
+                             if stored_key != key:
+                                 # Hash Collision!
+                                 next_attempt = True
+                                 break
+                         
+                         # Match Confirmed
+                         # Optimize: Update In Place
+                         if self._try_update_in_place(current_entry_ofs, val_payload):
+                             return current_entry_ofs
+                         
+                         entry_ofs = self._append_entry(key, val_payload)
+                         struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + idx*4, entry_ofs)
+                         return entry_ofs
+                         
+                     if h > key_hash:
+                         break
+                     idx += 1
+                
+                if next_attempt:
+                    break # Break inner while, continue for attempt loop
+                
+                # Check Children
+                next_child = child_ofs[idx]
+                if next_child != 0:
+                     # Traverse Down
+                     parent_ofs = node_ofs
+                     child_idx_in_parent = idx
+                     node_ofs = next_child
+                     continue
+                
+                # Insert at Leaf (idx)
+                entry_ofs = self._append_entry(key, val_payload)
+                
+                # Shift
+                for i in range(key_count, idx, -1):
+                     struct.pack_into('<I', self._buffer, node_ofs + OFS_HASHES + i*4, hashes[i-1])
+                     struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4, kv_ofs[i-1])
+                
+                struct.pack_into('<I', self._buffer, node_ofs + OFS_HASHES + idx*4, key_hash)
+                struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + idx*4, entry_ofs)
+                
+                # Update SizeKC
+                key_count += 1
+                size = (size_kc >> NODE_SIZE_SHIFT) + 1
+                new_size_kc = (size << NODE_SIZE_SHIFT) | key_count
+                struct.pack_into('<I', self._buffer, node_ofs + OFS_SIZE_KC, new_size_kc)
+                
+                return entry_ofs
             
-            # Check Children
-            next_child = child_ofs[idx]
-            if next_child != 0:
-                 # Traverse Down
-                 parent_ofs = node_ofs
-                 child_idx_in_parent = idx
-                 node_ofs = next_child
-                 continue
-            
-            # Insert at Leaf (idx)
-            entry_ofs = self._append_entry(key, val_payload)
-            
-            # Shift
-            for i in range(key_count, idx, -1):
-                 struct.pack_into('<I', self._buffer, node_ofs + OFS_HASHES + i*4, hashes[i-1])
-                 struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4, kv_ofs[i-1])
-            
-            struct.pack_into('<I', self._buffer, node_ofs + OFS_HASHES + idx*4, key_hash)
-            struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + idx*4, entry_ofs)
-            
-            # Update SizeKC
-            key_count += 1
-            size = (size_kc >> NODE_SIZE_SHIFT) + 1
-            new_size_kc = (size << NODE_SIZE_SHIFT) | key_count
-            struct.pack_into('<I', self._buffer, node_ofs + OFS_SIZE_KC, new_size_kc)
-            
-            return entry_ofs
+            if next_attempt:
+                continue
+                
+        raise ValueError("LITE3_HASH_PROBE_MAX exceeded")
 
     def _append_buffer_data(self, data: bytes) -> int:
         offset = self._buflen
@@ -677,39 +701,66 @@ class Lite3Buffer:
         _, val_ofs, _ = self._read_entry_header(entry_ofs, Lite3Type.OBJECT)
         return val_ofs
 
-    def _get_auto(self, node_ofs: int, key: str) -> Any:
+    def _get_auto(self, start_node_ofs: int, key: str) -> Any:
         # 1. Calculate Hash
-        key_hash = self._calc_hash(key)
+        base_hash = self._calc_hash(key)
         
-        # 2. Find Key
-        hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
-        size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
-        key_count = size_kc & NODE_KC_MASK
-        kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
-        
-        child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
-        
-        idx = 0
-        while idx < key_count:
-            h = hashes[idx]
-            if h == key_hash:
-                # Found Candidate? Hash collision possible?
-                # Need to verify Key String match if hashes match.
-                # Lite3 relies on 32-bit hashes. Collisions handled?
-                # Spec doesn't describe collision handling explicit scan.
-                # But typically verify key.
-                # Let's verify key.
-                k_ofs = kv_ofs[idx]
-                found_key, val_ofs, val_type = self._read_entry_header(k_ofs, Lite3Type.OBJECT) # Root is Object
-                if found_key == key:
-                    return self._read_recursive(val_ofs, val_type)
-                    
-                # If collision but not key match? Lite3 B-Tree likely handles it by open addressing or chaining?
-                # Or just traversing?
-                # If hashes are sorted, we might scan forward?
-                pass
+        for attempt in range(128):
+            key_hash = (base_hash + attempt * attempt) & 0xFFFFFFFF
             
-    def _arr_len(self, ofs: int) -> int:
+            node_ofs = start_node_ofs
+            
+            # Label for continuing outer loop
+            next_attempt = False
+            
+            while True:
+                # 2. Read Node Data
+                hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
+                size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
+                key_count = size_kc & NODE_KC_MASK
+                kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
+                child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
+                
+                idx = 0
+                found_in_node = False
+                
+                while idx < key_count:
+                    h = hashes[idx]
+                    if h == key_hash:
+                        # Found Candidate
+                        k_ofs = kv_ofs[idx]
+                        found_key, val_ofs, val_type = self._read_entry_header(k_ofs, Lite3Type.OBJECT)
+                        
+                        if found_key == key:
+                            return self._read_recursive(val_ofs, val_type)
+                        else:
+                            # Hash matched, but key different -> Collision.
+                            # Try next probe.
+                            next_attempt = True
+                            break 
+                    
+                    if h > key_hash:
+                        # Key not in this node, might be in child
+                        break
+                        
+                    idx += 1
+                
+                if next_attempt:
+                    break # Break inner while, continue probe loop
+
+                # Check Child
+                c_ofs = child_ofs[idx]
+                if c_ofs != 0:
+                    node_ofs = c_ofs
+                    continue # Traverse down
+                else:
+                    # Leaf reached, key not found in this path
+                    break # Break inner while, continue probe loop
+            
+            if next_attempt:
+                continue
+                
+        return None
         size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
         return size_kc >> NODE_SIZE_SHIFT
 
