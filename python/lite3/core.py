@@ -34,47 +34,61 @@ class Lite3Object(Lite3Ref):
     __slots__ = ()
 
     def __setitem__(self, key: str, value: Any) -> None:
-        """
-        Set a value using Python type inference.
-        """
         self._buffer._set_auto(self._offset, key, value)
 
     def __getitem__(self, key: str) -> Any:
-        """
-        Get a value by key.
-        """
         return self._buffer._get_auto(self._offset, key)
 
     def get_i64(self, key: str) -> int:
-        # return self._buffer._get_i64(self._offset, key)
-        return 0
+        val_ofs, val_type = self._buffer._find_key_entry(self._offset, key)
+        if val_ofs is None:
+            return 0 
+        
+        if val_type == Lite3Type.I64:
+             return struct.unpack_from('<q', self._buffer._buffer, val_ofs)[0]
+        else:
+             raise TypeError(f"Value for '{key}' is not an integer (type {val_type})")
 
     def get_f64(self, key: str) -> float:
-        # return self._buffer._get_f64(self._offset, key)
-        return 0.0
+        val_ofs, val_type = self._buffer._find_key_entry(self._offset, key)
+        if val_ofs is None: return 0.0
+        
+        if val_type == Lite3Type.F64:
+             return struct.unpack_from('<d', self._buffer._buffer, val_ofs)[0]
+        else:
+             raise TypeError(f"Value for '{key}' is not a float (type {val_type})")
     
     def get_str(self, key: str) -> str:
-        # return self._buffer._get_str(self._offset, key)
-        return ""
+        val_ofs, val_type = self._buffer._find_key_entry(self._offset, key)
+        if val_ofs is None: return ""
+        
+        if val_type == Lite3Type.STRING:
+             return self._buffer._read_str_data_at(val_ofs)
+        else:
+             raise TypeError(f"Value for '{key}' is not a string (type {val_type})")
 
     def get_bool(self, key: str) -> bool:
-        # return self._buffer._get_bool(self._offset, key)
-        return False
+        val_ofs, val_type = self._buffer._find_key_entry(self._offset, key)
+        if val_ofs is None: return False
+        
+        if val_type == Lite3Type.BOOL:
+             return struct.unpack_from('<?', self._buffer._buffer, val_ofs)[0]
+        raise TypeError(f"Value for '{key}' is not a boolean")
     
     def get_object(self, key: str) -> 'Lite3Object':
-        # ofs = self._buffer._get_obj_ofs(self._offset, key)
-        # return Lite3Object(self._buffer, ofs)
-        return Lite3Object(self._buffer, 0)
+        val_ofs, val_type = self._buffer._find_key_entry(self._offset, key)
+        if val_ofs is None: return None
+        
+        if val_type == Lite3Type.OBJECT:
+             return Lite3Object(self._buffer, val_ofs)
+        raise TypeError(f"Value for '{key}' is not an object")
 
     def exists(self, key: str) -> bool:
-        """Check if key exists."""
-        # Note: _get_auto returns None if not found OR if value is Null
-        # For stricter check, we might need _has_key logic. 
-        # But for now assuming None check is sufficient or typical Pythonic behavior.
-        return self._buffer._get_auto(self._offset, key) is not None
+        val_ofs, _ = self._buffer._find_key_entry(self._offset, key)
+        return val_ofs is not None
 
     def get(self, key: str, default: Any = None) -> Any:
-        val = self[key]
+        val = self._buffer._get_auto(self._offset, key)
         return val if val is not None else default
 
     def keys(self) -> Iterator[str]:
@@ -101,11 +115,45 @@ class Lite3Object(Lite3Ref):
     
     def set_f64(self, key: str, value: float) -> None:
         self._buffer._set_f64(self._offset, key, value)
+        
+    def set_str(self, key: str, value: str) -> None:
+        if not isinstance(value, str):
+            raise TypeError("Value must be a string")
+        self._buffer._set_auto(self._offset, key, value)
+        
+    def set_bool(self, key: str, value: bool) -> None:
+        if not isinstance(value, bool):
+            raise TypeError("Value must be a bool")
+        self._buffer._set_auto(self._offset, key, value)
+
+    def get_bytes(self, key: str) -> bytes:
+        val_ofs, val_type = self._buffer._find_key_entry(self._offset, key)
+        if val_ofs is None: return b""
+        
+        if val_type == Lite3Type.BYTES:
+             return self._buffer._read_bytes_data_at(val_ofs)
+        else:
+             raise TypeError(f"Value for '{key}' is not bytes (type {val_type})")
+
+    def get_array(self, key: str) -> 'Lite3Array':
+        val_ofs, val_type = self._buffer._find_key_entry(self._offset, key)
+        if val_ofs is None: return None
+        
+        if val_type == Lite3Type.ARRAY:
+             return Lite3Array(self._buffer, val_ofs)
+        raise TypeError(f"Value for '{key}' is not an array")
+
+    def set_bytes(self, key: str, value: bytes) -> None:
+        if not isinstance(value, (bytes, bytearray)):
+            raise TypeError("Value must be bytes")
+        self._buffer._set_auto(self._offset, key, value)
+        # Note: _set_auto -> _set_bytes logic exists.
 
     def create_object(self, key: str) -> 'Lite3Object':
         """Create and return a nested object."""
         new_ofs = self._buffer._set_obj(self._offset, key)
         return Lite3Object(self._buffer, new_ofs)
+
 
     def create_array(self, key: str) -> 'Lite3Array':
         """Create and return a nested array."""
@@ -144,6 +192,9 @@ class Lite3Array(Lite3Ref):
     def append_i64(self, value: int) -> None:
         self._buffer._arr_append_i64(self._offset, value)
 
+    def append_str(self, value: str) -> None:
+        self._buffer._arr_append_str(self._offset, value)
+
     def append_object(self) -> 'Lite3Object':
         """Append a new object to this array and return its reference."""
         new_ofs = self._buffer._arr_append_obj(self._offset)
@@ -160,6 +211,18 @@ class Lite3Buffer:
     A Python implementation of the Lite3 binary data format.
     """
 
+    def _read_str_data_at(self, ofs: int) -> str:
+        # Reads string payload: [Len:I32][Bytes][Null]
+        length = struct.unpack_from('<I', self._buffer, ofs)[0]
+        s_bytes = self._buffer[ofs + 4 : ofs + 4 + length]
+        return s_bytes.decode('utf-8').rstrip('\x00')
+
+    def _read_bytes_data_at(self, ofs: int) -> bytes:
+        # Reads bytes payload: [Len:I32][Bytes]
+        length = struct.unpack_from('<I', self._buffer, ofs)[0]
+        return self._buffer[ofs + 4 : ofs + 4 + length]
+
+
     def __init__(self, initial_capacity: int = 1024, data: Optional[Union[bytes, bytearray, memoryview]] = None):
         if data is not None:
             self._buffer = bytearray(data)
@@ -169,6 +232,8 @@ class Lite3Buffer:
         else:
             self._buffer = bytearray(initial_capacity)
             self._buflen = 0
+            
+        self._structure_gen = 0
 
     @property
     def memory(self) -> memoryview:
@@ -495,6 +560,8 @@ class Lite3Buffer:
     def _split_node(self, node_ofs: int, parent_ofs: Optional[int], child_idx: int, root_ofs: int, 
                     key: Optional[str], val_payload: bytes, key_hash: int) -> Tuple[Optional[int], int, Optional[int], int]:
         
+        self._structure_gen += 1
+        
         # 1. Align Buffer
         current_len = self._buflen
         aligned_len = (current_len + 3) & ~3
@@ -701,7 +768,11 @@ class Lite3Buffer:
         _, val_ofs, _ = self._read_entry_header(entry_ofs, Lite3Type.OBJECT)
         return val_ofs
 
-    def _get_auto(self, start_node_ofs: int, key: str) -> Any:
+    def _find_key_entry(self, start_node_ofs: int, key: str) -> Tuple[Optional[int], int]:
+        """
+        Finds the value offset and type for a given key in the object rooted at `start_node_ofs`.
+        Returns (val_ofs, val_type) or (None, 0) if not found.
+        """
         # 1. Calculate Hash
         base_hash = self._calc_hash(key)
         
@@ -732,7 +803,7 @@ class Lite3Buffer:
                         found_key, val_ofs, val_type = self._read_entry_header(k_ofs, Lite3Type.OBJECT)
                         
                         if found_key == key:
-                            return self._read_recursive(val_ofs, val_type)
+                            return val_ofs, val_type
                         else:
                             # Hash matched, but key different -> Collision.
                             # Try next probe.
@@ -760,7 +831,14 @@ class Lite3Buffer:
             if next_attempt:
                 continue
                 
-        return None
+        return None, 0
+
+    def _get_auto(self, start_node_ofs: int, key: str) -> Any:
+        val_ofs, val_type = self._find_key_entry(start_node_ofs, key)
+        if val_ofs is None:
+            return None
+        return self._read_recursive(val_ofs, val_type)
+    def _arr_len(self, ofs: int) -> int:
         size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
         return size_kc >> NODE_SIZE_SHIFT
 
