@@ -192,8 +192,79 @@ class Lite3Array(Lite3Ref):
     def append_i64(self, value: int) -> None:
         self._buffer._arr_append_i64(self._offset, value)
 
+    def append_f64(self, value: float) -> None:
+        self._buffer._arr_append_f64(self._offset, value)
+
+    def append_bool(self, value: bool) -> None:
+        self._buffer._arr_append_bool(self._offset, value)
+
     def append_str(self, value: str) -> None:
         self._buffer._arr_append_str(self._offset, value)
+
+    def append_bytes(self, value: bytes) -> None:
+        self._buffer._arr_append_bytes(self._offset, value)
+
+    def get_i64(self, index: int) -> int:
+        val_ofs, val_type = self._buffer._arr_find_entry(self._offset, index)
+        if val_ofs is None: return 0
+        if val_type == Lite3Type.I64:
+             return struct.unpack_from('<q', self._buffer._buffer, val_ofs)[0]
+        else:
+             raise TypeError(f"Value at index {index} is not an integer (type {val_type})")
+
+    def get_f64(self, index: int) -> float:
+        val_ofs, val_type = self._buffer._arr_find_entry(self._offset, index)
+        if val_ofs is None: return 0.0
+        if val_type == Lite3Type.F64:
+             return struct.unpack_from('<d', self._buffer._buffer, val_ofs)[0]
+        else:
+             raise TypeError(f"Value at index {index} is not a float (type {val_type})")
+
+    def get_str(self, index: int) -> str:
+        val_ofs, val_type = self._buffer._arr_find_entry(self._offset, index)
+        if val_ofs is None: return ""
+        if val_type == Lite3Type.STRING:
+             return self._buffer._read_str_data_at(val_ofs)
+        else:
+             raise TypeError(f"Value at index {index} is not a string (type {val_type})")
+
+    def get_bool(self, index: int) -> bool:
+        val_ofs, val_type = self._buffer._arr_find_entry(self._offset, index)
+        if val_ofs is None: return False
+        if val_type == Lite3Type.BOOL:
+             return struct.unpack_from('<?', self._buffer._buffer, val_ofs)[0]
+        else:
+             raise TypeError(f"Value at index {index} is not a boolean (type {val_type})")
+
+    def get_bytes(self, index: int) -> bytes:
+        val_ofs, val_type = self._buffer._arr_find_entry(self._offset, index)
+        if val_ofs is None: return b""
+        if val_type == Lite3Type.BYTES:
+             return self._buffer._read_bytes_data_at(val_ofs)
+        else:
+             raise TypeError(f"Value at index {index} is not bytes (type {val_type})")
+
+    def get_array(self, index: int) -> 'Lite3Array':
+        val_ofs, val_type = self._buffer._arr_find_entry(self._offset, index)
+        if val_ofs is None: return None
+        if val_type == Lite3Type.ARRAY:
+             return Lite3Array(self._buffer, val_ofs)
+        else:
+             raise TypeError(f"Value at index {index} is not an array (type {val_type})")
+             
+    def get_object(self, index: int) -> 'Lite3Object':
+        val_ofs, val_type = self._buffer._arr_find_entry(self._offset, index)
+        if val_ofs is None: return None
+        if val_type == Lite3Type.OBJECT:
+             return Lite3Object(self._buffer, val_ofs)
+        else:
+             raise TypeError(f"Value at index {index} is not an object (type {val_type})")
+
+    def set_i64(self, index: int, value: int) -> None:
+        self._buffer._arr_set_i64(self._offset, index, value)
+
+    def set_str(self, index: int, value: str) -> None:
+        self._buffer._arr_set_str(self._offset, index, value)
 
     def append_object(self) -> 'Lite3Object':
         """Append a new object to this array and return its reference."""
@@ -249,7 +320,7 @@ class Lite3Buffer:
         """Get the root object reference."""
         return Lite3Object(self, 0)
         
-    def _try_update_in_place(self, entry_ofs: int, val_payload: bytes) -> bool:
+    def _try_update_map_entry_in_place(self, entry_ofs: int, val_payload: bytes) -> bool:
         tag_byte = self._buffer[entry_ofs]
         tag_size = (tag_byte & 0x03) + 1
         
@@ -259,6 +330,9 @@ class Lite3Buffer:
         
         key_len = tag_val >> 2
         value_start = entry_ofs + tag_size + key_len
+        
+        if value_start >= len(self._buffer):
+             return False
         
         old_type = self._buffer[value_start]
         new_type = val_payload[0]
@@ -272,8 +346,30 @@ class Lite3Buffer:
             
         return False
 
-    def _set_impl(self, root_ofs: int, key: Optional[str], val_payload: bytes, forced_hash: Optional[int] = None) -> int:
-        # ... (Previous code)
+    def _try_update_array_val_in_place(self, entry_ofs: int, val_payload: bytes) -> bool:
+        # Entry points to Payload directly
+        old_type = self._buffer[entry_ofs]
+        
+        old_size = self._get_payload_size(entry_ofs, old_type)
+        if old_size == len(val_payload):
+             self._buffer[entry_ofs : entry_ofs + len(val_payload)] = val_payload
+             return True
+        return False
+
+    def _get_payload_size(self, ofs: int, type_tag: int) -> int:
+        if type_tag == Lite3Type.NULL: return 1
+        if type_tag == Lite3Type.BOOL: return 2
+        if type_tag == Lite3Type.I64: return 9
+        if type_tag == Lite3Type.F64: return 9
+        if type_tag == Lite3Type.STRING or type_tag == Lite3Type.BYTES:
+             length = struct.unpack_from('<I', self._buffer, ofs + 1)[0]
+             return 1 + 4 + length
+        if type_tag == Lite3Type.OBJECT or type_tag == Lite3Type.ARRAY:
+             return LITE3_NODE_SIZE
+        return 0
+
+    def _dead_set_impl(self, root_ofs: int, key: Optional[str], val_payload: bytes, forced_hash: Optional[int] = None) -> int:
+        # ... (Hashing logic retained) ...
         if key is not None:
             key_hash = self._calc_hash(key)
         else:
@@ -282,7 +378,7 @@ class Lite3Buffer:
             else:
                 key_hash = 0
         
-        # Increment Generation Count (C Compatibility)
+        # Increment Generation Count
         gen_type = struct.unpack_from('<I', self._buffer, root_ofs + OFS_GEN_TYPE)[0]
         gen = (gen_type >> GEN_SHIFT) + 1
         new_gen_type = (gen_type & NODE_TYPE_MASK) | (gen << GEN_SHIFT)
@@ -328,7 +424,13 @@ class Lite3Buffer:
                      # Match Found
                      # Optimize: Update In Place
                      current_entry_ofs = kv_ofs[idx]
-                     if self._try_update_in_place(current_entry_ofs, val_payload):
+                     updated = False
+                     if key is None:
+                          updated = self._try_update_array_val_in_place(current_entry_ofs, val_payload)
+                     else:
+                          updated = self._try_update_map_entry_in_place(current_entry_ofs, val_payload)
+
+                     if updated:
                          return current_entry_ofs
                      
                      entry_ofs = self._append_entry(key, val_payload)
@@ -498,8 +600,14 @@ class Lite3Buffer:
                          
                          # Match Confirmed
                          # Optimize: Update In Place
-                         if self._try_update_in_place(current_entry_ofs, val_payload):
-                             return current_entry_ofs
+                         updated = False
+                         if key is None:
+                              updated = self._try_update_array_val_in_place(current_entry_ofs, val_payload)
+                         else:
+                              updated = self._try_update_map_entry_in_place(current_entry_ofs, val_payload)
+                         
+                         if updated:
+                              return current_entry_ofs
                          
                          entry_ofs = self._append_entry(key, val_payload)
                          struct.pack_into('<I', self._buffer, node_ofs + OFS_KV_OFS + idx*4, entry_ofs)
@@ -729,14 +837,26 @@ class Lite3Buffer:
         return offset
 
     def _arr_append_auto(self, arr_ofs: int, val: Any) -> None:
-        # Similar logic for arrays
-        if isinstance(val, int):
+        if isinstance(val, bool):
+            self._arr_append_bool(arr_ofs, val)
+        elif isinstance(val, int):
             self._arr_append_i64(arr_ofs, val)
+        elif isinstance(val, float):
+            self._arr_append_f64(arr_ofs, val)
+        elif isinstance(val, (bytes, bytearray)):
+            self._arr_append_bytes(arr_ofs, val)
         elif isinstance(val, str):
             self._arr_append_str(arr_ofs, val)
-        # ... others
+        elif val is None:
+             self._arr_append_null(arr_ofs)
         else:
              raise TypeError(f"Unsupported type for Lite3 append: {type(val)}")
+
+    def _arr_append_null(self, ofs: int) -> None:
+        payload = struct.pack('<B', Lite3Type.NULL)
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        self._set_impl(ofs, None, payload, forced_hash=size)
     
     def _create_node_bytes(self, type_tag: Lite3Type) -> bytearray:
         """Create a new node bytearray (96 bytes)."""
@@ -842,51 +962,55 @@ class Lite3Buffer:
         size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
         return size_kc >> NODE_SIZE_SHIFT
 
-    def _arr_get_elem(self, node_ofs: int, index: int) -> Any:
+    def _arr_find_entry(self, node_ofs: int, index: int) -> Tuple[Optional[int], int]:
         # Search using index as hash
         key_hash = index
         
-        hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
-        size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
-        key_count = size_kc & NODE_KC_MASK
-        kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
-        child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
-        
-        idx = 0
-        while idx < key_count:
-            h = hashes[idx]
-            if h == key_hash:
-                # Found
-                k_ofs = kv_ofs[idx]
-                # Array Entry: ValType is at k_ofs (no key)
-                val_type = self._buffer[k_ofs]
-                
-                if val_type == Lite3Type.OBJECT or val_type == Lite3Type.ARRAY:
-                     # For Object/Array, k_ofs points to Start of Node structure?
-                     # My `_append_entry` returns `offset` pointing to Payload.
-                     # Payload starts with TypeTag?
-                     # `val_payload[0]`.
-                     # If Object, Payload IS the Object Node.
-                     # Object Node starts with GenType.
-                     # GenType byte 0 is TypeTag.
-                     # So `self._buffer[k_ofs]` is TypeTag.
-                     val_ofs = k_ofs
-                else:
-                     val_ofs = k_ofs + 1
-                
-                return self._read_recursive(val_ofs, val_type)
+        while True:
+            hashes = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_HASHES + i*4)[0] for i in range(MAX_KEYS)]
+            size_kc = struct.unpack_from('<I', self._buffer, node_ofs + OFS_SIZE_KC)[0]
+            key_count = size_kc & NODE_KC_MASK
+            kv_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_KV_OFS + i*4)[0] for i in range(MAX_KEYS)]
+            child_ofs = [struct.unpack_from('<I', self._buffer, node_ofs + OFS_CHILD_OFS + i*4)[0] for i in range(MAX_CHILDREN)]
             
-            if h > key_hash:
+            idx = 0
+            while idx < key_count:
+                h = hashes[idx]
+                if h == key_hash:
+                    # Found
+                    k_ofs = kv_ofs[idx]
+                    val_type = self._buffer[k_ofs]
+                    
+                    if val_type == Lite3Type.OBJECT or val_type == Lite3Type.ARRAY:
+                         val_ofs = k_ofs
+                    else:
+                         val_ofs = k_ofs + 1
+                    
+                    return val_ofs, val_type
+                
+                if h > key_hash:
+                    c_ofs = child_ofs[idx]
+                    if c_ofs != 0:
+                        node_ofs = c_ofs
+                        break 
+                    else:
+                        return None, 0
+                idx += 1
+            else:
                 c_ofs = child_ofs[idx]
                 if c_ofs != 0:
-                    return self._arr_get_elem(c_ofs, index)
-                return None
-            idx += 1
+                     node_ofs = c_ofs
+                     continue
+                else:
+                     return None, 0
             
-        c_ofs = child_ofs[idx]
-        if c_ofs != 0:
-             return self._arr_get_elem(c_ofs, index)
-        return None
+            continue
+
+    def _arr_get_elem(self, node_ofs: int, index: int) -> Any:
+        val_ofs, val_type = self._arr_find_entry(node_ofs, index)
+        if val_ofs is None:
+            return None
+        return self._read_recursive(val_ofs, val_type)
 
     def _arr_set_auto(self, ofs: int, index: int, val: Any) -> None:
         if isinstance(val, int):
@@ -935,6 +1059,25 @@ class Lite3Buffer:
 
     def _arr_append_i64(self, ofs: int, val: int) -> None:
         payload = struct.pack('<Bq', Lite3Type.I64, val)
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        self._set_impl(ofs, None, payload, forced_hash=size)
+
+    def _arr_append_f64(self, ofs: int, val: float) -> None:
+        payload = struct.pack('<Bd', Lite3Type.F64, val)
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        self._set_impl(ofs, None, payload, forced_hash=size)
+
+    def _arr_append_bool(self, ofs: int, val: bool) -> None:
+        payload = struct.pack('<BB', Lite3Type.BOOL, 1 if val else 0)
+        size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
+        size = size_kc >> NODE_SIZE_SHIFT
+        self._set_impl(ofs, None, payload, forced_hash=size)
+
+    def _arr_append_bytes(self, ofs: int, val: bytes) -> None:
+        length = len(val)
+        payload = struct.pack('<BI', Lite3Type.BYTES, length) + val
         size_kc = struct.unpack_from('<I', self._buffer, ofs + OFS_SIZE_KC)[0]
         size = size_kc >> NODE_SIZE_SHIFT
         self._set_impl(ofs, None, payload, forced_hash=size)

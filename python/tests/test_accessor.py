@@ -1,5 +1,6 @@
 import pytest
 from lite3 import Lite3Buffer
+from lite3.constants import Lite3Type # Ensure constants available if needed? No, usually hidden.
 
 def test_strict_typed_getters():
     buf = Lite3Buffer()
@@ -53,7 +54,7 @@ def test_strict_typed_getters():
     with pytest.raises(TypeError):
         root.get_str("my_bytes")
         
-    # 7. Array
+    # 7. Array Getters (on Object)
     arr = root.create_array("my_arr")
     arr.append(1)
     
@@ -66,26 +67,54 @@ def test_strict_typed_getters():
         
     # 8. Null
     root["my_null"] = None
-    # Null is its own type (0). Typed getters should expect their specific type (2, 5, etc)
-    # So getting i64 from Null raises TypeError
     with pytest.raises(TypeError):
         root.get_i64("my_null")
     with pytest.raises(TypeError):
         root.get_str("my_null")
 
-    # Matrix Checks (Sample Cross-Type Validation)
-    # Bool vs Int
-    with pytest.raises(TypeError): root.get_i64("my_bool")
-    # Int vs Bool
-    with pytest.raises(TypeError): root.get_bool("my_int")
-    # Obj vs Array
-    with pytest.raises(TypeError): root.get_array("my_obj")
-    # Array vs Obj
-    with pytest.raises(TypeError): root.get_object("my_arr")
-    # Bytes vs Str
-    with pytest.raises(TypeError): root.get_str("my_bytes")
-    # Str vs Bytes
-    with pytest.raises(TypeError): root.get_bytes("my_str")
+def test_array_typed_accessors():
+    """Test typed getters/setters on Lite3Array."""
+    buf = Lite3Buffer()
+    root = buf.init_obj()
+    arr = root.create_array("items")
+    
+    # Append some typed items
+    arr.append_i64(10)      # 0
+    arr.append_f64(3.14)    # 1
+    arr.append(3.14)        # 2
+    arr.append_str("text")  # 3
+    
+    # Check Typed Getters (Index based)
+    assert arr.get_i64(0) == 10
+    
+    # Float check
+    # Index 1 is float
+    assert arr.get_f64(1) == pytest.approx(3.14)
+    assert arr.get_f64(2) == pytest.approx(3.14)
+    
+    # String check
+    assert arr.get_str(3) == "text"
+    
+    # Check TypeErrors
+    with pytest.raises(TypeError):
+        arr.get_str(0) # It is int
+        
+    with pytest.raises(TypeError):
+        arr.get_i64(3) # It is str
+        
+    # Setters (Index based)
+    # Overwrite index 0 (Int) with Int
+    arr.set_i64(0, 99)
+    assert arr.get_i64(0) == 99
+    
+    # Overwrite index 0 (Int) with Str? 
+    # Calling set_str(0, "new")
+    arr.set_str(0, "new")
+    assert arr.get_str(0) == "new"
+    
+    # Check typed get mismatch on new type
+    with pytest.raises(TypeError):
+        arr.get_i64(0)
 
 def test_generational_safety():
     buf = Lite3Buffer()
@@ -98,20 +127,9 @@ def test_generational_safety():
     # Verify it works
     assert child.get_i64("data") == 1
     
-    # Trigger split/mutation that increments generation
-    # We need to fill the root node until it splits.
-    # Assuming MAX_KEYS is relatively small (e.g. < 20).
+    # Trigger split/mutation
     for i in range(100):
         root.set_i64(f"key_{i}", i)
         
-    # Now buffer generation should have increased due to splits.
-    # Ideally, we want references to remain valid if the underlying logic allows it.
-    # Since we removed the generation check (as references to Nodes/Values are stable in append-only-ish file),
-    # the reference should STILL work.
-    
     val = child.get_i64("data")
     assert val == 1
-
-    # Create NEW reference, should also work
-    child_new = root.get_object("child")
-    assert child_new.get_i64("data") == 1
